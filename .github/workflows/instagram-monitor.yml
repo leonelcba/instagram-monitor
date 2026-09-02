@@ -8,28 +8,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-- name: Descargar imagen
-  run: |
-    curl -L \
-      "https://www.bttbike.com/foto/o/12/65/1265166110_HORQUILLA_ASFALTO_ULTRA_LITE.jpg" \
-      -o historia.jpg
+      - name: Descargar imagen
+        run: |
+          curl -L \
+            "https://www.bttbike.com/foto/o/12/65/1265166110_HORQUILLA_ASFALTO_ULTRA_LITE.jpg" \
+            -o historia.jpg
 
-    echo "Imagen descargada:"
-    file historia.jpg
-    ls -lh historia.jpg
+          echo "Imagen descargada:"
+          file historia.jpg
+          ls -lh historia.jpg
 
       - name: Enviar imagen a Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          curl -sS -X POST \
+          echo "Enviando imagen a Telegram..."
+
+          RESPONSE=$(curl -sS -X POST \
             "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto" \
             -F "chat_id=${TELEGRAM_CHAT_ID}" \
             -F "photo=@historia.jpg" \
-            -F "caption=📸 Instagram Monitor: imagen descargada correctamente"
+            -F "caption=📸 Instagram Monitor - imagen descargada correctamente")
 
-      - name: Limpiar archivo temporal
+          echo "Respuesta de Telegram:"
+          echo "$RESPONSE"
+
+      - name: Eliminar archivo temporal
         run: |
           rm -f historia.jpg
           echo "Archivo temporal eliminado."

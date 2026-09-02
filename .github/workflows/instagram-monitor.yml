@@ -52,7 +52,6 @@ jobs:
           import json
           import os
           import re
-          import time
 
 
           # ========================================================
@@ -132,20 +131,20 @@ jobs:
                   account,
                   str
               ):
-
                   continue
-
 
               account = account.strip()
 
 
               # Permitir @cuenta
+
               if account.startswith("@"):
 
                   account = account[1:]
 
 
               # Permitir accidentalmente una URL
+
               if "instagram.com/" in account:
 
                   account = (
@@ -157,7 +156,6 @@ jobs:
 
 
               if not account:
-
                   continue
 
 
@@ -251,64 +249,154 @@ jobs:
 
 
           # ========================================================
-          # FUNCIÓN: BUSCAR URLs MULTIMEDIA
+          # FUNCIÓN: OBTENER URLS MULTIMEDIA
           # ========================================================
 
           def collect_media_urls(page):
 
-              media_urls = []
+              urls = []
 
-              links = page.locator(
-                  "a"
+
+              # ----------------------------------------------------
+              # Buscar en <a href> y <img src>
+              # ----------------------------------------------------
+
+              elements = page.locator(
+                  "a[href], img[src]"
               )
 
-              try:
 
-                  total_links = links.count()
-
-              except Exception:
-
-                  total_links = 0
+              count = elements.count()
 
 
-              for i in range(
-                  total_links
-              ):
+              for i in range(count):
 
                   try:
 
-                      href = (
-                          links
-                          .nth(i)
-                          .get_attribute(
-                              "href"
-                          )
+                      element = elements.nth(i)
+
+                      href = element.get_attribute(
+                          "href"
                       )
 
-                      if not href:
-                          continue
+                      src = element.get_attribute(
+                          "src"
+                      )
 
 
-                      if (
-                          "media.sssinstagram.com/get"
-                          not in href.lower()
-                      ):
-
-                          continue
+                      candidates = []
 
 
-                      if href not in media_urls:
+                      if href:
+                          candidates.append(href)
 
-                          media_urls.append(
-                              href
-                          )
+
+                      if src:
+                          candidates.append(src)
+
+
+                      for value in candidates:
+
+                          if (
+                              "media.sssinstagram.com/get"
+                              not in value.lower()
+                          ):
+                              continue
+
+
+                          if value not in urls:
+
+                              urls.append(
+                                  value
+                              )
+
 
                   except Exception:
 
                       pass
 
 
-              return media_urls
+              return urls
+
+
+          # ========================================================
+          # FUNCIÓN: SCROLL INTERNO
+          # ========================================================
+
+          def scroll_internal_containers(page):
+
+              return page.evaluate(
+                  """
+                  () => {
+
+                      const elements =
+                          [...document.querySelectorAll('*')];
+
+                      const scrollables =
+                          elements.filter(el => {
+
+                              const style =
+                                  getComputedStyle(el);
+
+                              return (
+                                  el.scrollHeight >
+                                  el.clientHeight + 100
+                                  &&
+                                  (
+                                      style.overflowY === 'auto'
+                                      ||
+                                      style.overflowY === 'scroll'
+                                      ||
+                                      style.overflow === 'auto'
+                                      ||
+                                      style.overflow === 'scroll'
+                                  )
+                              );
+
+                          });
+
+
+                      let moved = 0;
+
+
+                      for (const el of scrollables) {
+
+                          const oldTop =
+                              el.scrollTop;
+
+
+                          const amount =
+                              Math.max(
+                                  500,
+                                  Math.floor(
+                                      el.clientHeight * 0.85
+                                  )
+                              );
+
+
+                          el.scrollTop =
+                              Math.min(
+                                  oldTop + amount,
+                                  el.scrollHeight
+                              );
+
+
+                          if (
+                              el.scrollTop !== oldTop
+                          ) {
+
+                              moved++;
+
+                          }
+
+                      }
+
+
+                      return moved;
+
+                  }
+                  """
+              )
 
 
           # ========================================================
@@ -320,6 +408,7 @@ jobs:
               browser = p.chromium.launch(
                   headless=True
               )
+
 
               context = browser.new_context(
 
@@ -395,19 +484,19 @@ jobs:
                           )
                       )
 
+
                   elif isinstance(
                       account_state,
                       list
                   ):
 
-                      # Estado antiguo
                       legacy_state = True
 
                       known_hashes = set()
 
+
                   else:
 
-                      # Cuenta nueva
                       known_hashes = set()
 
 
@@ -439,11 +528,13 @@ jobs:
                           "\nAbriendo SSSInstagram..."
                       )
 
+
                       page.goto(
                           SSS_URL,
                           wait_until="domcontentloaded",
                           timeout=60000
                       )
+
 
                       page.wait_for_timeout(
                           3000
@@ -457,6 +548,7 @@ jobs:
                       print(
                           "Introduciendo perfil..."
                       )
+
 
                       input_box = page.locator(
                           "input[type='text'], "
@@ -485,23 +577,28 @@ jobs:
                           "Buscando botón Descargar..."
                       )
 
-                      download_button = page.get_by_role(
-                          "button",
-                          name=re.compile(
-                              "descargar",
-                              re.I
-                          )
-                      ).first
 
-
-                      if not download_button.is_visible():
-
-                          download_button = page.get_by_text(
-                              re.compile(
+                      download_button = (
+                          page.get_by_role(
+                              "button",
+                              name=re.compile(
                                   "descargar",
                                   re.I
                               )
                           ).first
+                      )
+
+
+                      if not download_button.is_visible():
+
+                          download_button = (
+                              page.get_by_text(
+                                  re.compile(
+                                      "descargar",
+                                      re.I
+                                  )
+                              ).first
+                          )
 
 
                       if not download_button.is_visible():
@@ -516,6 +613,7 @@ jobs:
                           "Pulsando Descargar..."
                       )
 
+
                       download_button.click()
 
 
@@ -526,6 +624,7 @@ jobs:
                       print(
                           "Esperando resultados..."
                       )
+
 
                       page.wait_for_timeout(
                           10000
@@ -539,6 +638,7 @@ jobs:
                       print(
                           "\nBuscando sección Stories..."
                       )
+
 
                       story_tab_found = False
 
@@ -617,7 +717,6 @@ jobs:
 
 
                               if story_tab_found:
-
                                   break
 
 
@@ -641,9 +740,9 @@ jobs:
                           )
 
 
-                      # =============================================
-                      # OBTENER URLs MULTIMEDIA
-                      # =============================================
+                      # =================================================
+                      # OBTENER STORIES
+                      # =================================================
 
                       print(
                           "\nBuscando URLs multimedia..."
@@ -661,70 +760,50 @@ jobs:
                       )
 
 
-                      # =============================================
-                      # SCROLL PARA CARGAR MÁS STORIES
-                      # =============================================
-                      #
-                      # SSSInstagram puede mostrar solamente una
-                      # parte de las Stories inicialmente.
-                      #
-                      # Hacemos varios desplazamientos y después
-                      # de cada uno volvemos a buscar URLs.
-                      #
-                      # Nos detenemos después de varios intentos
-                      # consecutivos sin encontrar URLs nuevas.
-                      # =============================================
-
-                      print(
-                          "\n🔽 Buscando Stories adicionales mediante scroll..."
-                      )
-
+                      # =================================================
+                      # SCROLL INTERNO
+                      # =================================================
 
                       previous_count = len(
                           media_urls
                       )
 
-                      no_change_count = 0
 
-                      max_scrolls = 15
+                      no_new_rounds = 0
 
 
-                      for scroll_number in range(
+                      print(
+                          "\nBuscando Stories adicionales "
+                          "mediante scroll interno..."
+                      )
+
+
+                      for round_number in range(
                           1,
-                          max_scrolls + 1
+                          15
                       ):
 
-                          print(
-                              f"Scroll {scroll_number}/{max_scrolls}..."
-                          )
-
-
-                          try:
-
-                              page.mouse.wheel(
-                                  0,
-                                  1200
-                              )
-
-                          except Exception:
-
-                              pass
-
-
-                          page.wait_for_timeout(
-                              2000
-                          )
-
-
-                          new_urls = collect_media_urls(
+                          moved = scroll_internal_containers(
                               page
                           )
 
 
-                          added = 0
+                          page.wait_for_timeout(
+                              1500
+                          )
 
 
-                          for url in new_urls:
+                          current_urls = (
+                              collect_media_urls(
+                                  page
+                              )
+                          )
+
+
+                          new_urls = 0
+
+
+                          for url in current_urls:
 
                               if url not in media_urls:
 
@@ -732,91 +811,50 @@ jobs:
                                       url
                                   )
 
-                                  added += 1
+                                  new_urls += 1
 
 
                           print(
-                              "  URLs nuevas encontradas:",
-                              added
+                              f"Scroll interno "
+                              f"{round_number}/14: "
+                              f"contenedores desplazados "
+                              f"{moved}, "
+                              f"URLs nuevas "
+                              f"{new_urls}, "
+                              f"total "
+                              f"{len(media_urls)}"
                           )
 
-                          print(
-                              "  Total acumulado:",
-                              len(media_urls)
-                          )
 
+                          if new_urls == 0:
 
-                          if len(media_urls) == previous_count:
-
-                              no_change_count += 1
+                              no_new_rounds += 1
 
                           else:
 
-                              no_change_count = 0
+                              no_new_rounds = 0
 
 
-                          previous_count = len(
-                              media_urls
-                          )
-
-
-                          # Si durante 3 scrolls seguidos
-                          # no aparece nada nuevo, damos por
-                          # terminada la búsqueda.
-
-                          if no_change_count >= 3:
+                          if (
+                              moved == 0
+                              or no_new_rounds >= 3
+                          ):
 
                               print(
                                   "⏹️ No aparecen más "
-                                  "URLs nuevas."
+                                  "Stories nuevas."
                               )
 
                               break
 
 
-                      # =============================================
-                      # SEGUNDO INTENTO: IR AL FINAL DE LA PÁGINA
-                      # =============================================
-                      #
-                      # Algunas páginas utilizan carga diferida.
-                      # Por eso hacemos un último desplazamiento
-                      # directo al final y volvemos a comprobar.
-                      # =============================================
-
-                      print(
-                          "\n🔽 Comprobación final de contenido..."
-                      )
-
-
-                      try:
-
-                          page.evaluate(
-                              """
-                              () => {
-                                  window.scrollTo(
-                                      0,
-                                      document.body.scrollHeight
-                                  );
-                              }
-                              """
-                          )
-
-                      except Exception:
-
-                          pass
-
-
-                      page.wait_for_timeout(
-                          3000
-                      )
-
+                      # =================================================
+                      # COMPROBACIÓN FINAL
+                      # =================================================
 
                       final_urls = collect_media_urls(
                           page
                       )
-
-
-                      added_final = 0
 
 
                       for url in final_urls:
@@ -827,14 +865,6 @@ jobs:
                                   url
                               )
 
-                              added_final += 1
-
-
-                      print(
-                          "URLs adicionales en comprobación final:",
-                          added_final
-                      )
-
 
                       print(
                           "\nURLs multimedia encontradas:",
@@ -842,9 +872,9 @@ jobs:
                       )
 
 
-                      # =============================================
+                      # =================================================
                       # SI NO ENCONTRÓ STORIES
-                      # =============================================
+                      # =================================================
 
                       if not media_urls:
 
@@ -858,9 +888,9 @@ jobs:
                           continue
 
 
-                      # =============================================
+                      # =================================================
                       # PROCESAR MEDIA
-                      # =============================================
+                      # =================================================
 
                       for media_index, media_url in enumerate(
                           media_urls
@@ -1022,7 +1052,7 @@ jobs:
 
 
                           # =========================================
-                          # CALCULAR SHA-256
+                          # SHA-256
                           # =========================================
 
                           print(
@@ -1044,9 +1074,10 @@ jobs:
                                       1024 * 1024
                                   )
 
-                                  if not chunk:
 
+                                  if not chunk:
                                       break
+
 
                                   sha256.update(
                                       chunk
@@ -1075,22 +1106,17 @@ jobs:
                                   "fue enviada."
                               )
 
+
                               os.remove(
                                   temp_filename
                               )
+
 
                               continue
 
 
                           # =========================================
                           # CUENTA NUEVA
-                          # =========================================
-                          #
-                          # Si la cuenta acaba de agregarse,
-                          # las Stories que ya estaban activas
-                          # NO se envían.
-                          #
-                          # Se registran como conocidas.
                           # =========================================
 
                           if account_is_new or legacy_state:
@@ -1100,18 +1126,22 @@ jobs:
                                   "cuenta nueva."
                               )
 
+
                               print(
                                   "Se registra como conocida "
                                   "sin enviarla."
                               )
 
+
                               known_hashes.add(
                                   file_hash
                               )
 
+
                               os.remove(
                                   temp_filename
                               )
+
 
                               continue
 
@@ -1161,6 +1191,7 @@ jobs:
                           f"❌ Error procesando "
                           f"{account}:"
                       )
+
 
                       print(
                           str(e)
@@ -1283,8 +1314,11 @@ jobs:
       - name: Enviar Stories a Telegram
 
         env:
+
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
 
         run: |
 
@@ -1327,6 +1361,7 @@ jobs:
               "TELEGRAM_BOT_TOKEN"
           ]
 
+
           CHAT_ID = os.environ[
               "TELEGRAM_CHAT_ID"
           ]
@@ -1350,13 +1385,16 @@ jobs:
                   "filename"
               ]
 
+
               file_hash = item[
                   "hash"
               ]
 
+
               account = item[
                   "account"
               ]
+
 
               media_type = item[
                   "type"
@@ -1367,13 +1405,16 @@ jobs:
                   "\n================================"
               )
 
+
               print(
                   f"Enviando Story de @{account}"
               )
 
+
               print(
                   f"Archivo: {filename}"
               )
+
 
               print(
                   "================================"
@@ -1406,19 +1447,25 @@ jobs:
                   command = [
 
                       "curl",
+
                       "-sS",
+
                       "-X",
+
                       "POST",
 
                       endpoint,
 
                       "-F",
+
                       f"chat_id={CHAT_ID}",
 
                       "-F",
+
                       f"video=@{filename}",
 
                       "-F",
+
                       f"caption={caption}"
 
                   ]
@@ -1439,19 +1486,25 @@ jobs:
                   command = [
 
                       "curl",
+
                       "-sS",
+
                       "-X",
+
                       "POST",
 
                       endpoint,
 
                       "-F",
+
                       f"chat_id={CHAT_ID}",
 
                       "-F",
+
                       f"photo=@{filename}",
 
                       "-F",
+
                       f"caption={caption}"
 
                   ]
@@ -1479,6 +1532,7 @@ jobs:
                   "Respuesta Telegram:"
               )
 
+
               print(
                   response
               )
@@ -1493,6 +1547,7 @@ jobs:
                   print(
                       "✅ Enviada correctamente."
                   )
+
 
                   successfully_sent.append({
 
@@ -1552,6 +1607,7 @@ jobs:
                   "account"
               ]
 
+
               file_hash = item[
                   "hash"
               ]
@@ -1563,15 +1619,22 @@ jobs:
               ):
 
                   state[account] = {
+
                       "hashes": []
+
                   }
 
 
               hashes = set(
+
                   state[account].get(
+
                       "hashes",
+
                       []
+
                   )
+
               )
 
 
@@ -1598,10 +1661,15 @@ jobs:
           ) as f:
 
               json.dump(
+
                   state,
+
                   f,
+
                   indent=2,
+
                   ensure_ascii=False
+
               )
 
 
@@ -1609,10 +1677,12 @@ jobs:
               "\n================================"
           )
 
+
           print(
               "Stories enviadas correctamente:",
               len(successfully_sent)
           )
+
 
           print(
               "================================"
@@ -1631,6 +1701,7 @@ jobs:
 
           git config user.name \
             "Instagram Monitor"
+
 
           git config user.email \
             "instagram-monitor@users.noreply.github.com"

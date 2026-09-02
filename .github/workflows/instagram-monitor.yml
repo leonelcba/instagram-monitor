@@ -4,57 +4,217 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-sssinstagram:
+  inspect-sssinstagram:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Instalar herramientas
+      - name: Instalar Python y Playwright
         run: |
           python -m pip install --upgrade pip
-          pip install requests beautifulsoup4
+          pip install playwright
+          playwright install --with-deps chromium
 
-      - name: Consultar SSSInstagram
-        env:
-          INSTAGRAM_URL: "https://www.instagram.com/stories/zero.design.oficial/3976607132233581985/"
+      - name: Abrir SSSInstagram y buscar perfil
         run: |
-          python <<'PY'
-          import os
-          import requests
+          cat > test_sssinstagram.py <<'PY'
+          from playwright.sync_api import sync_playwright
+          import re
+          import time
 
-          url = "https://sssinstagram.com/es/story-saver"
+          INSTAGRAM_PROFILE = "https://www.instagram.com/zero.design.oficial/"
+          SSS_URL = "https://sssinstagram.com/es/story-saver"
 
-          instagram_url = os.environ["INSTAGRAM_URL"]
+          with sync_playwright() as p:
 
-          session = requests.Session()
+              browser = p.chromium.launch(
+                  headless=True
+              )
 
-          session.headers.update({
-              "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
-              "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
-          })
+              page = browser.new_page(
+                  viewport={
+                      "width": 1366,
+                      "height": 900
+                  },
+                  user_agent=(
+                      "Mozilla/5.0 (X11; Linux x86_64) "
+                      "AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) "
+                      "Chrome/139.0.0.0 Safari/537.36"
+                  )
+              )
 
-          print("Abriendo SSSInstagram...")
+              print("======================================")
+              print("ABRIENDO SSSINSTAGRAM")
+              print("======================================")
 
-          response = session.get(url, timeout=30)
+              page.goto(
+                  SSS_URL,
+                  wait_until="domcontentloaded",
+                  timeout=60000
+              )
 
-          print("HTTP:", response.status_code)
-          print("Tamaño de respuesta:", len(response.text))
+              print("Página cargada:")
+              print(page.url)
 
-          if response.status_code != 200:
-              raise Exception("SSSInstagram no respondió correctamente")
+              # Mostrar inputs encontrados
+              print("\nINPUTS ENCONTRADOS:")
+              for i, element in enumerate(page.locator("input").all()):
+                  try:
+                      print(
+                          i,
+                          element.get_attribute("name"),
+                          element.get_attribute("placeholder"),
+                          element.get_attribute("type")
+                      )
+                  except:
+                      pass
 
-          print("SSSInstagram respondió correctamente.")
+              # Buscar el primer campo de texto
+              input_box = page.locator(
+                  "input[type='text'], input[type='url']"
+              ).first
+
+              if not input_box.is_visible():
+                  raise Exception(
+                      "No se encontró el campo para introducir la URL."
+                  )
+
+              print("\nIntroduciendo perfil:")
+              print(INSTAGRAM_PROFILE)
+
+              input_box.fill(INSTAGRAM_PROFILE)
+
+              # Buscar botones
+              print("\nBOTONES ENCONTRADOS:")
+
+              buttons = page.locator("button")
+
+              for i in range(buttons.count()):
+                  try:
+                      text = buttons.nth(i).inner_text()
+                      print(i, repr(text))
+                  except:
+                      pass
+
+              # Intentar encontrar el botón Descargar
+              download_button = page.get_by_role(
+                  "button",
+                  name=re.compile("descargar", re.I)
+              ).first
+
+              if not download_button.is_visible():
+                  # Algunas versiones pueden usar un enlace
+                  download_button = page.get_by_text(
+                      re.compile("descargar", re.I)
+                  ).first
+
+              if not download_button.is_visible():
+                  raise Exception(
+                      "No se encontró el botón Descargar."
+                  )
+
+              print("\nPulsando Descargar...")
+
+              download_button.click()
+
+              # Esperar que la página procese la consulta
+              print("Esperando resultados...")
+
+              page.wait_for_timeout(10000)
+
+              print("\n======================================")
+              print("URL FINAL")
+              print("======================================")
+              print(page.url)
+
+              # Guardar HTML para inspección
+              html = page.content()
+
+              with open("sssinstagram-result.html", "w", encoding="utf-8") as f:
+                  f.write(html)
+
+              # Captura de pantalla
+              page.screenshot(
+                  path="sssinstagram-result.png",
+                  full_page=True
+              )
+
+              print("\n======================================")
+              print("ENLACES ENCONTRADOS")
+              print("======================================")
+
+              links = page.locator("a")
+
+              found = set()
+
+              for i in range(links.count()):
+
+                  link = links.nth(i)
+
+                  try:
+                      href = link.get_attribute("href")
+                      text = link.inner_text().strip()
+
+                      if href and href not in found:
+
+                          found.add(href)
+
+                          print(
+                              f"[{i}] "
+                              f"texto={text!r} "
+                              f"url={href}"
+                          )
+
+                  except:
+                      pass
+
+              print("\n======================================")
+              print("URLS QUE PARECEN ARCHIVOS")
+              print("======================================")
+
+              for href in found:
+
+                  lower = href.lower()
+
+                  if any(
+                      extension in lower
+                      for extension in [
+                          ".jpg",
+                          ".jpeg",
+                          ".png",
+                          ".webp",
+                          ".mp4",
+                          ".mov"
+                      ]
+                  ):
+
+                      print(href)
+
+              print("\n======================================")
+              print("TEXTO DE LA PÁGINA")
+              print("======================================")
+
+              text = page.locator("body").inner_text()
+
+              print(text[:15000])
+
+              browser.close()
           PY
 
-      - name: Enviar prueba a Telegram
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          curl -sS -X POST \
-            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text=✅ GitHub puede acceder a SSSInstagram. Siguiente paso: localizar la petición que obtiene la Story."
+          python test_sssinstagram.py
 
-      - name: Finalizar
+      - name: Mostrar archivos generados
+        if: always()
         run: |
-          echo "Prueba terminada."
+          echo "Archivos generados:"
+          ls -lh
+
+      - name: Subir resultados de diagnóstico
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sssinstagram-diagnostic
+          path: |
+            sssinstagram-result.html
+            sssinstagram-result.png
+          retention-days: 1

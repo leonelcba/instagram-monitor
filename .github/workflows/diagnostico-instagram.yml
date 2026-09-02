@@ -8,120 +8,95 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configurar Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
       - name: Instalar Playwright
         run: |
-          npm init -y
-          npm install playwright
-          npx playwright install --with-deps chromium
+          python -m pip install --upgrade pip
+          pip install playwright
+          playwright install --with-deps chromium
 
       - name: Ejecutar diagnóstico
+        shell: python
         run: |
-          cat > diagnostico.py <<'PY'
           import time
           from playwright.sync_api import sync_playwright
 
           PROFILE = "laderechadiario"
           PROFILE_URL = f"https://www.instagram.com/{PROFILE}/"
-
           NEEDLE = "media.sssinstagram.com/get"
 
-          def short(value, length=180):
-              if not value:
-                  return ""
-              value = str(value).replace("\n", " ")
-              return value[:length]
+          def count_urls(page):
+              return page.evaluate("""
+              needle => {
+                  let result = [];
 
-          def scan(page, label):
-              print()
-              print("=" * 70)
-              print(f"ESCANEO: {label}")
-              print("=" * 70)
-
-              result = page.evaluate("""
-              (needle) => {
-                  const all = [...document.querySelectorAll('*')];
-                  const matches = [];
-
-                  for (const el of all) {
-                      for (const attr of [...el.attributes]) {
-                          const value = attr.value || '';
-
-                          if (value.includes(needle)) {
-                              matches.push({
+                  for (const el of document.querySelectorAll('*')) {
+                      for (const attr of el.attributes) {
+                          if ((attr.value || '').includes(needle)) {
+                              result.push({
                                   tag: el.tagName,
                                   attr: attr.name,
-                                  value: value.slice(0, 250),
-                                  id: el.id || '',
+                                  value: attr.value.substring(0, 200),
                                   className: typeof el.className === 'string'
-                                      ? el.className.slice(0, 200)
+                                      ? el.className.substring(0, 150)
                                       : ''
                               });
                           }
                       }
                   }
 
-                  const byTag = {};
-
-                  for (const m of matches) {
-                      byTag[m.tag] = (byTag[m.tag] || 0) + 1;
-                  }
-
-                  return {
-                      total: matches.length,
-                      byTag,
-                      matches
-                  };
+                  return result;
               }
               """, NEEDLE)
 
-              print(f"TOTAL de elementos/atributos con media.sssinstagram.com/get: {result['total']}")
-              print(f"POR TIPO: {result['byTag']}")
-
-              for i, m in enumerate(result["matches"], 1):
-                  print()
-                  print(f"[{i}] <{m['tag'].lower()}> atributo={m['attr']}")
-                  print(f"    id: {short(m['id'], 100)}")
-                  print(f"    class: {short(m['className'], 150)}")
-                  print(f"    valor: {short(m['value'])}")
-
-              return result
-
-          def inspect_scrollables(page):
-              print()
+          def show_scan(page, title):
+              print("")
               print("=" * 70)
-              print("ELEMENTOS CON SCROLL INTERNO")
+              print(title)
               print("=" * 70)
 
-              scrollables = page.evaluate("""
+              matches = count_urls(page)
+
+              print(f"Total encontrados: {len(matches)}")
+
+              by_tag = {}
+
+              for item in matches:
+                  tag = item["tag"]
+                  by_tag[tag] = by_tag.get(tag, 0) + 1
+
+              print("Por etiqueta:", by_tag)
+
+              for n, item in enumerate(matches, 1):
+                  print("")
+                  print(f"[{n}] <{item['tag'].lower()}>")
+                  print(f"    atributo: {item['attr']}")
+                  print(f"    clase: {item['className']}")
+                  print(f"    URL: {item['value']}")
+
+              return matches
+
+          def get_scrollables(page):
+              return page.evaluate("""
               () => {
                   const result = [];
 
                   for (const el of document.querySelectorAll('*')) {
                       const style = getComputedStyle(el);
 
-                      const scrollable =
+                      if (
                           el.scrollHeight > el.clientHeight + 100 &&
                           (
                               style.overflowY === 'auto' ||
                               style.overflowY === 'scroll' ||
                               style.overflow === 'auto' ||
                               style.overflow === 'scroll'
-                          );
-
-                      if (scrollable) {
+                          )
+                      ) {
                           result.push({
                               tag: el.tagName,
                               id: el.id || '',
                               className: typeof el.className === 'string'
-                                  ? el.className.slice(0, 250)
+                                  ? el.className.substring(0, 200)
                                   : '',
                               scrollHeight: el.scrollHeight,
                               clientHeight: el.clientHeight,
@@ -134,139 +109,25 @@ jobs:
               }
               """)
 
-              print(f"Elementos con scroll interno encontrados: {len(scrollables)}")
-
-              for i, item in enumerate(scrollables, 1):
-                  print()
-                  print(f"[SCROLL {i}]")
-                  print(f"  tag: {item['tag']}")
-                  print(f"  id: {short(item['id'], 100)}")
-                  print(f"  class: {short(item['className'], 200)}")
-                  print(f"  scrollHeight: {item['scrollHeight']}")
-                  print(f"  clientHeight: {item['clientHeight']}")
-                  print(f"  scrollTop: {item['scrollTop']}")
-
-              return scrollables
-
-          def scroll_internal_containers(page):
-              print()
-              print("=" * 70)
-              print("PROBANDO SCROLL INTERNO")
-              print("=" * 70)
-
-              total_new = 0
-
-              for round_number in range(1, 11):
-
-                  before = page.evaluate("""
-                  (needle) => {
-                      let count = 0;
-
-                      for (const el of document.querySelectorAll('*')) {
-                          for (const attr of [...el.attributes]) {
-                              if ((attr.value || '').includes(needle)) {
-                                  count++;
-                              }
-                          }
-                      }
-
-                      return count;
-                  }
-                  """, NEEDLE)
-
-                  print()
-                  print(f"RONDA DE SCROLL INTERNO {round_number}/10")
-                  print(f"URLs antes: {before}")
-
-                  page.evaluate("""
-                  () => {
-                      const elements = [...document.querySelectorAll('*')];
-
-                      const scrollables = elements.filter(el => {
-                          const style = getComputedStyle(el);
-
-                          return (
-                              el.scrollHeight > el.clientHeight + 100 &&
-                              (
-                                  style.overflowY === 'auto' ||
-                                  style.overflowY === 'scroll' ||
-                                  style.overflow === 'auto' ||
-                                  style.overflow === 'scroll'
-                              )
-                          );
-                      });
-
-                      for (const el of scrollables) {
-                          const amount = Math.max(
-                              300,
-                              Math.floor(el.clientHeight * 0.8)
-                          );
-
-                          el.scrollTop = Math.min(
-                              el.scrollTop + amount,
-                              el.scrollHeight
-                          );
-                      }
-
-                      return scrollables.length;
-                  }
-                  """)
-
-                  time.sleep(2)
-
-                  after = page.evaluate("""
-                  (needle) => {
-                      let count = 0;
-
-                      for (const el of document.querySelectorAll('*')) {
-                          for (const attr of [...el.attributes]) {
-                              if ((attr.value || '').includes(needle)) {
-                                  count++;
-                              }
-                          }
-                      }
-
-                      return count;
-                  }
-                  """, NEEDLE)
-
-                  new = after - before
-
-                  print(f"URLs después: {after}")
-                  print(f"URLs nuevas: {new}")
-
-                  if new > 0:
-                      total_new += new
-                      scan(page, f"después de scroll interno {round_number}")
-
-              print()
-              print(f"TOTAL NUEVAS ENCONTRADAS MEDIANTE SCROLL INTERNO: {total_new}")
-
           with sync_playwright() as p:
+
+              print("=" * 70)
+              print("INICIANDO DIAGNÓSTICO")
+              print("=" * 70)
+              print(f"Cuenta: {PROFILE}")
 
               browser = p.chromium.launch(
                   headless=True,
-                  args=[
-                      "--disable-blink-features=AutomationControlled"
-                  ]
+                  args=["--disable-blink-features=AutomationControlled"]
               )
 
               page = browser.new_page(
-                  viewport={
-                      "width": 1440,
-                      "height": 1200
-                  }
+                  viewport={"width": 1440, "height": 1200}
               )
 
               page.set_default_timeout(30000)
 
-              print("=" * 70)
-              print("DIAGNÓSTICO SSSINSTAGRAM")
-              print("=" * 70)
-              print(f"Cuenta: {PROFILE}")
-              print(f"Perfil: {PROFILE_URL}")
-
-              print()
+              print("")
               print("Abriendo SSSInstagram...")
 
               page.goto(
@@ -277,271 +138,389 @@ jobs:
 
               time.sleep(3)
 
-              print("Introduciendo perfil...")
+              print("Página abierta correctamente.")
 
+              # Buscar campo de URL
               inputs = page.locator("input")
 
               print(f"Inputs encontrados: {inputs.count()}")
-
-              for i in range(inputs.count()):
-                  try:
-                      print(
-                          f"  input {i}: "
-                          f"placeholder={short(inputs.nth(i).get_attribute('placeholder'), 100)} "
-                          f"name={short(inputs.nth(i).get_attribute('name'), 100)}"
-                      )
-                  except:
-                      pass
 
               target = None
 
               for i in range(inputs.count()):
                   inp = inputs.nth(i)
 
-                  try:
-                      placeholder = inp.get_attribute("placeholder") or ""
-                      name = inp.get_attribute("name") or ""
-                      input_type = inp.get_attribute("type") or ""
+                  placeholder = inp.get_attribute("placeholder") or ""
+                  name = inp.get_attribute("name") or ""
+                  input_type = inp.get_attribute("type") or ""
 
-                      text = (
-                          placeholder.lower()
-                          + " "
-                          + name.lower()
-                      )
+                  text = (
+                      placeholder.lower()
+                      + " "
+                      + name.lower()
+                  )
 
-                      if (
-                          "url" in text
-                          or "instagram" in text
-                          or input_type == "text"
-                      ):
-                          target = inp
-                          break
-                  except:
-                      pass
+                  if (
+                      "instagram" in text
+                      or "url" in text
+                      or input_type == "text"
+                  ):
+                      target = inp
+                      break
 
               if target is None and inputs.count() > 0:
                   target = inputs.nth(0)
 
               if target is None:
-                  raise Exception("No se encontró el campo de URL.")
+                  raise Exception("NO SE ENCONTRO EL CAMPO DE URL")
+
+              print("Campo encontrado.")
 
               target.fill(PROFILE_URL)
 
-              print("Buscando botón Descargar...")
+              print("Perfil introducido.")
 
-              buttons = page.get_by_text(
-                  "Descargar",
-                  exact=True
-              )
+              # Buscar Descargar
+              buttons = page.locator("button")
 
-              print(f"Botones Descargar encontrados: {buttons.count()}")
-
-              if buttons.count() == 0:
-                  buttons = page.locator("button")
-
-              for i in range(buttons.count()):
-                  try:
-                      txt = buttons.nth(i).inner_text()
-                      if txt.strip():
-                          print(f"  botón {i}: {short(txt, 120)}")
-                  except:
-                      pass
+              print(f"Botones encontrados: {buttons.count()}")
 
               clicked = False
 
               for i in range(buttons.count()):
-                  try:
-                      txt = buttons.nth(i).inner_text().strip().lower()
 
-                      if "descargar" in txt:
+                  try:
+                      text = buttons.nth(i).inner_text().strip()
+
+                      if "descargar" in text.lower():
+
+                          print(f"Botón encontrado: {text}")
+
                           buttons.nth(i).click()
+
                           clicked = True
                           break
+
                   except:
                       pass
 
               if not clicked:
-                  raise Exception("No se pudo pulsar Descargar.")
 
-              print("Esperando resultados...")
-              time.sleep(5)
+                  links = page.locator("a")
 
-              print()
-              print("Título:", short(page.title(), 200))
-              print("URL actual:", page.url)
-
-              print()
-              print("Buscando Stories...")
-
-              stories_found = False
-
-              texts = [
-                  "STORIES",
-                  "Stories",
-                  "stories",
-                  "HISTORIAS",
-                  "Historias",
-                  "historias",
-                  "STORY",
-                  "Story",
-                  "story"
-              ]
-
-              for text in texts:
-
-                  locator = page.get_by_text(
-                      text,
-                      exact=True
-                  )
-
-                  if locator.count() > 0:
-
-                      print(
-                          f"Elemento encontrado: '{text}' "
-                          f"({locator.count()} elementos)"
-                      )
+                  for i in range(links.count()):
 
                       try:
-                          locator.first.click()
-                          stories_found = True
-                          print("✅ Se abrió la sección Stories.")
-                          break
-                      except Exception as e:
-                          print(
-                              "No se pudo hacer click:",
-                              short(e, 200)
-                          )
+                          text = links.nth(i).inner_text().strip()
 
-              if not stories_found:
-                  print("⚠️ No se pudo identificar/clickear Stories.")
+                          if "descargar" in text.lower():
 
-              time.sleep(3)
+                              print(f"Enlace encontrado: {text}")
 
-              # --------------------------------------------------
-              # PRIMER ESCANEO
-              # --------------------------------------------------
+                              links.nth(i).click()
 
-              scan(page, "estado inicial")
+                              clicked = True
+                              break
 
-              # --------------------------------------------------
-              # INSPECCIÓN DE ELEMENTOS HTML
-              # --------------------------------------------------
-
-              print()
-              print("=" * 70)
-              print("ELEMENTOS ESPECÍFICOS")
-              print("=" * 70)
-
-              for tag in [
-                  "a",
-                  "button",
-                  "img",
-                  "video",
-                  "source"
-              ]:
-
-                  count = page.locator(tag).count()
-
-                  print()
-                  print(f"<{tag}> encontrados: {count}")
-
-                  found = 0
-
-                  for i in range(count):
-
-                      el = page.locator(tag).nth(i)
-
-                      try:
-                          attrs = page.evaluate(
-                              """el => {
-                                  const result = {};
-                                  for (const attr of el.attributes) {
-                                      result[attr.name] = attr.value;
-                                  }
-                                  return result;
-                              }""",
-                              el
-                          )
-
-                          text = ""
-
-                          try:
-                              text = el.inner_text()
-                          except:
-                              pass
-
-                          serialized = str(attrs)
-
-                          if (
-                              NEEDLE in serialized
-                              or NEEDLE in text
-                              or tag in ["video", "img", "source"]
-                          ):
-                              found += 1
-
-                              print()
-                              print(f"[{i}] <{tag}>")
-                              print(
-                                  "    atributos:",
-                                  short(serialized, 400)
-                              )
-
-                              if text.strip():
-                                  print(
-                                      "    texto:",
-                                      short(text, 200)
-                                  )
-
-                              if found >= 20:
-                                  print(
-                                      "    ... límite de 20 elementos"
-                                  )
-                                  break
-
-                      except Exception as e:
+                      except:
                           pass
 
+              if not clicked:
+                  raise Exception("NO SE ENCONTRO EL BOTON DESCARGAR")
+
+              print("Descargar pulsado.")
+
+              print("Esperando resultados...")
+
+              time.sleep(6)
+
+              print("URL actual:", page.url)
+
+              # Buscar Stories
+              stories = page.get_by_text("STORIES", exact=True)
+
+              if stories.count() == 0:
+                  stories = page.get_by_text("Stories", exact=True)
+
+              if stories.count() == 0:
+                  stories = page.get_by_text("stories", exact=True)
+
+              print(f"Elementos Stories encontrados: {stories.count()}")
+
+              if stories.count() > 0:
+
+                  try:
+                      stories.first.click()
+                      print("Stories pulsado.")
+                  except:
+                      print("No se pudo pulsar Stories.")
+
+              time.sleep(4)
+
               # --------------------------------------------------
-              # CONTENEDORES CON SCROLL
+              # ESCANEO INICIAL
               # --------------------------------------------------
 
-              inspect_scrollables(page)
+              initial = show_scan(
+                  page,
+                  "ESCANEO INICIAL"
+              )
+
+              # --------------------------------------------------
+              # ELEMENTOS CON SCROLL
+              # --------------------------------------------------
+
+              print("")
+              print("=" * 70)
+              print("CONTENEDORES CON SCROLL")
+              print("=" * 70)
+
+              scrollables = get_scrollables(page)
+
+              print(
+                  f"Contenedores con scroll interno: "
+                  f"{len(scrollables)}"
+              )
+
+              for i, item in enumerate(scrollables, 1):
+
+                  print("")
+                  print(f"SCROLL {i}")
+                  print(f"  tag: {item['tag']}")
+                  print(f"  id: {item['id']}")
+                  print(f"  class: {item['className']}")
+                  print(
+                      f"  scrollHeight: "
+                      f"{item['scrollHeight']}"
+                  )
+                  print(
+                      f"  clientHeight: "
+                      f"{item['clientHeight']}"
+                  )
+                  print(
+                      f"  scrollTop: "
+                      f"{item['scrollTop']}"
+                  )
 
               # --------------------------------------------------
               # SCROLL INTERNO
               # --------------------------------------------------
 
-              scroll_internal_containers(page)
-
-              # --------------------------------------------------
-              # ESCANEO FINAL
-              # --------------------------------------------------
-
-              final = scan(page, "ESTADO FINAL")
-
-              print()
+              print("")
               print("=" * 70)
-              print("RESUMEN FINAL")
+              print("PROBANDO SCROLL INTERNO")
+              print("=" * 70)
+
+              previous_count = len(initial)
+
+              for round_number in range(1, 11):
+
+                  print("")
+                  print(
+                      f"RONDA {round_number}/10"
+                  )
+
+                  moved = page.evaluate("""
+                  () => {
+
+                      const elements =
+                          [...document.querySelectorAll('*')];
+
+                      const scrollables =
+                          elements.filter(el => {
+
+                              const style =
+                                  getComputedStyle(el);
+
+                              return (
+                                  el.scrollHeight >
+                                  el.clientHeight + 100
+                                  &&
+                                  (
+                                      style.overflowY === 'auto' ||
+                                      style.overflowY === 'scroll' ||
+                                      style.overflow === 'auto' ||
+                                      style.overflow === 'scroll'
+                                  )
+                              );
+                          });
+
+                      let count = 0;
+
+                      for (const el of scrollables) {
+
+                          const oldTop =
+                              el.scrollTop;
+
+                          const amount =
+                              Math.max(
+                                  400,
+                                  Math.floor(
+                                      el.clientHeight * 0.8
+                                  )
+                              );
+
+                          el.scrollTop =
+                              Math.min(
+                                  oldTop + amount,
+                                  el.scrollHeight
+                              );
+
+                          if (
+                              el.scrollTop !== oldTop
+                          ) {
+                              count++;
+                          }
+                      }
+
+                      return count;
+                  }
+                  """)
+
+                  print(
+                      f"Contenedores desplazados: {moved}"
+                  )
+
+                  time.sleep(2)
+
+                  current = count_urls(page)
+
+                  current_count = len(current)
+
+                  print(
+                      f"URLs encontradas ahora: "
+                      f"{current_count}"
+                  )
+
+                  if current_count > previous_count:
+
+                      print(
+                          f"🔥 APARECIERON "
+                          f"{current_count - previous_count} "
+                          f"URLs NUEVAS"
+                      )
+
+                      show_scan(
+                          page,
+                          f"URLs DESPUÉS DE RONDA {round_number}"
+                      )
+
+                      previous_count = current_count
+
+                  else:
+
+                      print(
+                          "No aparecieron URLs nuevas."
+                      )
+
+              # --------------------------------------------------
+              # BUSCAR URLs EN TODO TIPO DE ELEMENTOS
+              # --------------------------------------------------
+
+              print("")
+              print("=" * 70)
+              print("ELEMENTOS MULTIMEDIA")
+              print("=" * 70)
+
+              for tag in [
+                  "a",
+                  "img",
+                  "video",
+                  "source",
+                  "button"
+              ]:
+
+                  locator = page.locator(tag)
+
+                  print(
+                      f"<{tag}>: "
+                      f"{locator.count()}"
+                  )
+
+                  found = 0
+
+                  for i in range(locator.count()):
+
+                      if found >= 30:
+                          break
+
+                      el = locator.nth(i)
+
+                      try:
+
+                          attrs = page.evaluate(
+                              """
+                              el => {
+                                  const result = {};
+
+                                  for (
+                                      const attr
+                                      of el.attributes
+                                  ) {
+                                      result[attr.name] =
+                                          attr.value;
+                                  }
+
+                                  return result;
+                              }
+                              """,
+                              el
+                          )
+
+                          serialized = str(attrs)
+
+                          if (
+                              NEEDLE in serialized
+                              or tag in [
+                                  "img",
+                                  "video",
+                                  "source"
+                              ]
+                          ):
+
+                              print("")
+                              print(
+                                  f"{tag.upper()} #{i}"
+                              )
+
+                              print(
+                                  serialized[:500]
+                              )
+
+                              found += 1
+
+                      except:
+                          pass
+
+              # --------------------------------------------------
+              # FINAL
+              # --------------------------------------------------
+
+              final = show_scan(
+                  page,
+                  "ESCANEO FINAL"
+              )
+
+              print("")
+              print("=" * 70)
+              print("DIAGNÓSTICO TERMINADO")
               print("=" * 70)
 
               print(
-                  "Total de elementos que contienen "
-                  "media.sssinstagram.com/get:",
-                  final["total"]
+                  f"URLs iniciales: {len(initial)}"
               )
 
               print(
-                  "Distribución por etiqueta:",
-                  final["byTag"]
+                  f"URLs finales: {len(final)}"
               )
 
-              print()
-              print("DIAGNÓSTICO TERMINADO.")
-              print("No se modificó instagram-state.json.")
-              print("No se modificó ningún estado.")
-              print("No se envió nada a Telegram.")
+              print(
+                  "No se modificó ningún archivo "
+                  "del monitor."
+              )
+
+              print(
+                  "No se envió nada a Telegram."
+              )
 
               browser.close()
-          PY
-
-          python diagnostico.py

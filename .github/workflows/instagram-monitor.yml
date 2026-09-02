@@ -3,6 +3,9 @@ name: Instagram Monitor
 on:
   workflow_dispatch:
 
+  schedule:
+    - cron: '0 * * * *'
+
 jobs:
   monitor-instagram:
     runs-on: ubuntu-latest
@@ -21,10 +24,10 @@ jobs:
 
 
       # ============================================================
-      # 2. BUSCAR STORY EN SSSINSTAGRAM
+      # 2. BUSCAR STORIES
       # ============================================================
 
-      - name: Buscar Story
+      - name: Buscar Stories
         env:
           INSTAGRAM_PROFILE: "https://www.instagram.com/zero.design.oficial/"
           SSS_URL: "https://sssinstagram.com/es/story-saver"
@@ -34,26 +37,67 @@ jobs:
 
           from playwright.sync_api import sync_playwright
           import requests
-          import re
+          import hashlib
+          import json
           import os
-          import sys
-          from urllib.parse import urlparse
+          import re
+          from urllib.parse import urlparse, parse_qs, unquote
 
 
-          INSTAGRAM_PROFILE = os.environ["INSTAGRAM_PROFILE"]
-          SSS_URL = os.environ["SSS_URL"]
+          PROFILE = "zero.design.oficial"
+          PROFILE_URL = f"https://www.instagram.com/{PROFILE}/"
+
+          STATE_FILE = "data/instagram-state.json"
+
+          os.makedirs("downloads", exist_ok=True)
+          os.makedirs("data", exist_ok=True)
+
+
+          # ========================================================
+          # CARGAR ESTADO
+          # ========================================================
+
+          if os.path.exists(STATE_FILE):
+
+              with open(
+                  STATE_FILE,
+                  "r",
+                  encoding="utf-8"
+              ) as f:
+
+                  state = json.load(f)
+
+          else:
+
+              state = {}
+
+
+          sent = set(
+              state.get(PROFILE, [])
+          )
+
+          new_ids = []
+          downloaded = []
 
 
           print("======================================")
           print("INSTAGRAM MONITOR")
           print("======================================")
 
-          print("Perfil:")
-          print(INSTAGRAM_PROFILE)
+          print(
+              "Perfil:",
+              PROFILE
+          )
 
-          print("SSSInstagram:")
-          print(SSS_URL)
+          print(
+              "Stories ya enviadas:",
+              len(sent)
+          )
 
+
+          # ========================================================
+          # PLAYWRIGHT
+          # ========================================================
 
           with sync_playwright() as p:
 
@@ -77,59 +121,57 @@ jobs:
               page = context.new_page()
 
 
-              # ----------------------------------------------------
+              # ====================================================
               # ABRIR SSSINSTAGRAM
-              # ----------------------------------------------------
+              # ====================================================
 
               print("\nAbriendo SSSInstagram...")
 
               page.goto(
-                  SSS_URL,
+                  "https://sssinstagram.com/es/story-saver",
                   wait_until="domcontentloaded",
                   timeout=60000
               )
 
               page.wait_for_timeout(3000)
 
-              print("Página cargada:")
-              print(page.url)
 
+              # ====================================================
+              # INTRODUCIR PERFIL
+              # ====================================================
 
-              # ----------------------------------------------------
-              # BUSCAR INPUT
-              # ----------------------------------------------------
+              print("Introduciendo perfil...")
 
-              inputs = page.locator(
+              input_box = page.locator(
                   "input[type='text'], input[type='url']"
+              ).first
+
+              input_box.fill(
+                  PROFILE_URL
               )
 
-              if inputs.count() == 0:
-                  raise Exception(
-                      "No se encontró el campo para introducir la URL."
-                  )
 
-              input_box = inputs.first
+              # ====================================================
+              # BOTÓN DESCARGAR
+              # ====================================================
 
-              print("\nIntroduciendo perfil...")
-
-              input_box.fill(INSTAGRAM_PROFILE)
-
-
-              # ----------------------------------------------------
-              # BUSCAR BOTÓN DESCARGAR
-              # ----------------------------------------------------
-
-              print("Buscando botón Descargar...")
+              print("Pulsando Descargar...")
 
               download_button = page.get_by_role(
                   "button",
-                  name=re.compile("descargar", re.I)
+                  name=re.compile(
+                      "descargar",
+                      re.I
+                  )
               ).first
 
               if not download_button.is_visible():
 
                   download_button = page.get_by_text(
-                      re.compile("descargar", re.I)
+                      re.compile(
+                          "descargar",
+                          re.I
+                      )
                   ).first
 
 
@@ -140,44 +182,54 @@ jobs:
                   )
 
 
-              print("Pulsando Descargar...")
-
               download_button.click()
 
 
-              # ----------------------------------------------------
+              # ====================================================
               # ESPERAR RESULTADOS
-              # ----------------------------------------------------
+              # ====================================================
 
-              print("Esperando resultados...")
+              print(
+                  "Esperando resultados..."
+              )
 
-              page.wait_for_timeout(10000)
+              page.wait_for_timeout(
+                  10000
+              )
 
 
-              # ----------------------------------------------------
-              # INTENTAR IR A STORIES / HISTORIAS
-              # ----------------------------------------------------
+              # ====================================================
+              # BUSCAR STORIES
+              # ====================================================
 
-              print("\nBuscando pestaña Stories...")
+              print(
+                  "\nBuscando sección Stories..."
+              )
 
-              story_patterns = [
+              story_tab_found = False
+
+              for pattern in [
                   r"stories",
                   r"story",
                   r"historias",
                   r"historia"
-              ]
-
-              clicked_story_tab = False
-
-              for pattern in story_patterns:
+              ]:
 
                   try:
 
                       elements = page.get_by_text(
-                          re.compile(pattern, re.I)
+                          re.compile(
+                              pattern,
+                              re.I
+                          )
                       )
 
-                      for i in range(min(elements.count(), 10)):
+                      for i in range(
+                          min(
+                              elements.count(),
+                              10
+                          )
+                      ):
 
                           element = elements.nth(i)
 
@@ -185,12 +237,16 @@ jobs:
 
                               if element.is_visible():
 
-                                  text = element.inner_text().strip()
+                                  text = (
+                                      element
+                                      .inner_text()
+                                      .strip()
+                                  )
 
                                   if text:
 
                                       print(
-                                          "Posible pestaña encontrada:",
+                                          "Encontrado:",
                                           repr(text)
                                       )
 
@@ -198,248 +254,379 @@ jobs:
                                           timeout=3000
                                       )
 
-                                      page.wait_for_timeout(5000)
+                                      page.wait_for_timeout(
+                                          5000
+                                      )
 
-                                      clicked_story_tab = True
+                                      story_tab_found = True
 
                                       break
 
                           except:
                               pass
 
-                      if clicked_story_tab:
+                      if story_tab_found:
                           break
 
                   except:
                       pass
 
 
-              if clicked_story_tab:
+              if story_tab_found:
 
-                  print("Se abrió la sección Stories/Historias.")
+                  print(
+                      "Se abrió Stories."
+                  )
 
               else:
 
                   print(
-                      "No se pudo identificar la pestaña Stories. "
-                      "Continuando con los resultados encontrados."
+                      "No se detectó explícitamente "
+                      "la pestaña Stories."
                   )
 
 
-              # ----------------------------------------------------
-              # OBTENER ENLACES DE MEDIA
-              # ----------------------------------------------------
+              # ====================================================
+              # BUSCAR URLs DE MEDIA
+              # ====================================================
 
-              print("\nBuscando archivos multimedia...")
+              print(
+                  "\nBuscando archivos multimedia..."
+              )
 
               links = page.locator("a")
 
               media_urls = []
 
-              for i in range(links.count()):
+
+              for i in range(
+                  links.count()
+              ):
 
                   link = links.nth(i)
 
                   try:
 
-                      href = link.get_attribute("href")
+                      href = link.get_attribute(
+                          "href"
+                      )
 
                       if not href:
                           continue
 
-                      href_lower = href.lower()
 
-
-                      # SSSInstagram proxy
-                      if "media.sssinstagram.com/get" not in href_lower:
-                          continue
-
-
-                      # Debe contener un formato multimedia
-                      if not any(
-                          ext in href_lower
-                          for ext in [
-                              ".jpg",
-                              ".jpeg",
-                              ".png",
-                              ".webp",
-                              ".mp4",
-                              ".mov"
-                          ]
+                      if (
+                          "media.sssinstagram.com/get"
+                          not in href.lower()
                       ):
                           continue
 
 
                       if href not in media_urls:
 
-                          media_urls.append(href)
+                          media_urls.append(
+                              href
+                          )
 
                   except:
                       pass
 
 
               print(
-                  "Archivos multimedia encontrados:",
+                  "URLs multimedia encontradas:",
                   len(media_urls)
               )
 
 
               if not media_urls:
 
-                  # Guardamos información para diagnóstico
-                  with open(
-                      "sssinstagram-debug.html",
-                      "w",
-                      encoding="utf-8"
-                  ) as f:
-                      f.write(page.content())
-
                   page.screenshot(
                       path="sssinstagram-debug.png",
                       full_page=True
                   )
 
+                  with open(
+                      "sssinstagram-debug.html",
+                      "w",
+                      encoding="utf-8"
+                  ) as f:
+
+                      f.write(
+                          page.content()
+                      )
+
                   raise Exception(
-                      "No se encontró ninguna URL multimedia."
+                      "No se encontraron Stories."
                   )
 
 
-              # ----------------------------------------------------
-              # MOSTRAR SOLO INFORMACIÓN SEGURA
-              # ----------------------------------------------------
+              # ====================================================
+              # PROCESAR CADA STORY
+              # ====================================================
 
-              for i, url in enumerate(media_urls):
-
-                  parsed = urlparse(url)
+              for index, media_url in enumerate(
+                  media_urls
+              ):
 
                   print(
-                      f"Media {i + 1}:",
-                      parsed.netloc,
-                      "→ URL temporal encontrada"
+                      f"\nProcesando Story {index + 1}..."
                   )
 
 
-              # ----------------------------------------------------
-              # TOMAR EL PRIMER MEDIA
-              # ----------------------------------------------------
+                  # ------------------------------------------------
+                  # EXTRAER URI REAL DE INSTAGRAM
+                  # ------------------------------------------------
 
-              media_url = media_urls[0]
+                  try:
 
-              print("\nUsando el primer archivo encontrado.")
+                      parsed = urlparse(
+                          media_url
+                      )
+
+                      query = parse_qs(
+                          parsed.query
+                      )
+
+                      real_uri = query.get(
+                          "uri",
+                          [media_url]
+                      )[0]
+
+                      real_uri = unquote(
+                          real_uri
+                      )
+
+                  except:
+
+                      real_uri = media_url
 
 
-              # ----------------------------------------------------
-              # DESCARGAR INMEDIATAMENTE
-              # ----------------------------------------------------
+                  # ------------------------------------------------
+                  # ID ESTABLE
+                  # ------------------------------------------------
 
-              print("Descargando archivo temporal...")
+                  story_id = hashlib.sha256(
+                      real_uri.encode(
+                          "utf-8"
+                      )
+                  ).hexdigest()[:20]
 
-              response = requests.get(
-                  media_url,
-                  timeout=60,
-                  stream=True,
-                  headers={
-                      "User-Agent":
-                      "Mozilla/5.0"
-                  }
-              )
 
-              print(
-                  "HTTP:",
-                  response.status_code
-              )
-
-              if response.status_code != 200:
-
-                  raise Exception(
-                      f"No se pudo descargar el archivo. "
-                      f"HTTP {response.status_code}"
+                  print(
+                      "ID:",
+                      story_id
                   )
 
 
-              content_type = response.headers.get(
-                  "content-type",
-                  ""
-              ).lower()
+                  # ------------------------------------------------
+                  # YA ENVIADA
+                  # ------------------------------------------------
+
+                  if story_id in sent:
+
+                      print(
+                          "Esta Story ya fue enviada."
+                      )
+
+                      continue
 
 
-              print(
-                  "Content-Type:",
-                  content_type
-              )
+                  # ------------------------------------------------
+                  # DESCARGAR INMEDIATAMENTE
+                  # ------------------------------------------------
 
+                  print(
+                      "Descargando..."
+                  )
 
-              # ----------------------------------------------------
-              # DETERMINAR EXTENSIÓN
-              # ----------------------------------------------------
-
-              if "video" in content_type:
-
-                  filename = "instagram_story.mp4"
-
-              elif "png" in content_type:
-
-                  filename = "instagram_story.png"
-
-              elif "webp" in content_type:
-
-                  filename = "instagram_story.webp"
-
-              else:
-
-                  filename = "instagram_story.jpg"
-
-
-              # ----------------------------------------------------
-              # GUARDAR
-              # ----------------------------------------------------
-
-              with open(filename, "wb") as f:
-
-                  for chunk in response.iter_content(
-                      chunk_size=1024 * 1024
-                  ):
-
-                      if chunk:
-                          f.write(chunk)
-
-
-              filesize = os.path.getsize(filename)
-
-              print(
-                  "Archivo descargado:",
-                  filename
-              )
-
-              print(
-                  "Tamaño:",
-                  filesize,
-                  "bytes"
-              )
-
-
-              if filesize == 0:
-
-                  raise Exception(
-                      "El archivo descargado está vacío."
+                  response = requests.get(
+                      media_url,
+                      stream=True,
+                      timeout=60,
+                      headers={
+                          "User-Agent":
+                          "Mozilla/5.0"
+                      }
                   )
 
 
-              # ----------------------------------------------------
-              # GUARDAR DATOS PARA EL SIGUIENTE STEP
-              # ----------------------------------------------------
-
-              with open(
-                  "media_filename.txt",
-                  "w"
-              ) as f:
-
-                  f.write(filename)
+                  print(
+                      "HTTP:",
+                      response.status_code
+                  )
 
 
-              print("\nDescarga completada.")
+                  if response.status_code != 200:
+
+                      print(
+                          "No se pudo descargar."
+                      )
+
+                      continue
+
+
+                  content_type = (
+                      response
+                      .headers
+                      .get(
+                          "content-type",
+                          ""
+                      )
+                      .lower()
+                  )
+
+
+                  # ------------------------------------------------
+                  # EXTENSIÓN
+                  # ------------------------------------------------
+
+                  if "video" in content_type:
+
+                      extension = ".mp4"
+
+                  elif "png" in content_type:
+
+                      extension = ".png"
+
+                  elif "webp" in content_type:
+
+                      extension = ".webp"
+
+                  else:
+
+                      extension = ".jpg"
+
+
+                  filename = (
+                      f"downloads/"
+                      f"{story_id}"
+                      f"{extension}"
+                  )
+
+
+                  # ------------------------------------------------
+                  # GUARDAR
+                  # ------------------------------------------------
+
+                  with open(
+                      filename,
+                      "wb"
+                  ) as f:
+
+                      for chunk in response.iter_content(
+                          chunk_size=1024 * 1024
+                      ):
+
+                          if chunk:
+
+                              f.write(
+                                  chunk
+                              )
+
+
+                  filesize = os.path.getsize(
+                      filename
+                  )
+
+
+                  print(
+                      "Descargado:",
+                      filename
+                  )
+
+                  print(
+                      "Tamaño:",
+                      filesize,
+                      "bytes"
+                  )
+
+
+                  if filesize == 0:
+
+                      os.remove(
+                          filename
+                      )
+
+                      continue
+
+
+                  downloaded.append(
+                      filename
+                  )
+
+                  new_ids.append(
+                      story_id
+                  )
+
 
               browser.close()
+
+
+          # ========================================================
+          # GUARDAR NUEVOS IDs
+          # ========================================================
+
+          if PROFILE not in state:
+
+              state[PROFILE] = []
+
+
+          state[PROFILE].extend(
+              new_ids
+          )
+
+
+          # Eliminar duplicados
+          state[PROFILE] = list(
+              dict.fromkeys(
+                  state[PROFILE]
+              )
+          )
+
+
+          with open(
+              STATE_FILE,
+              "w",
+              encoding="utf-8"
+          ) as f:
+
+              json.dump(
+                  state,
+                  f,
+                  indent=2,
+                  ensure_ascii=False
+              )
+
+
+          # ========================================================
+          # LISTA DE ARCHIVOS PARA TELEGRAM
+          # ========================================================
+
+          with open(
+              "files.txt",
+              "w",
+              encoding="utf-8"
+          ) as f:
+
+              for filename in downloaded:
+
+                  f.write(
+                      filename + "\n"
+                  )
+
+
+          print(
+              "\n======================================"
+          )
+
+          print(
+              "Stories nuevas:",
+              len(downloaded)
+          )
+
+          print(
+              "======================================"
+          )
 
           PY
 
@@ -448,86 +635,112 @@ jobs:
 
 
       # ============================================================
-      # 3. ENVIAR A TELEGRAM
+      # 3. ENVIAR STORIES NUEVAS A TELEGRAM
       # ============================================================
 
-      - name: Enviar Story a Telegram
+      - name: Enviar Stories nuevas a Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
 
-          FILE=$(cat media_filename.txt)
+          if [ ! -f files.txt ]; then
 
-          echo "Archivo a enviar:"
-          echo "$FILE"
+            echo "No hay archivos."
 
-          if [[ "$FILE" == *.mp4 ]]; then
-
-            echo "Detectado VIDEO."
-
-            RESPONSE=$(curl -sS -X POST \
-              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendVideo" \
-              -F "chat_id=${TELEGRAM_CHAT_ID}" \
-              -F "video=@${FILE}" \
-              -F "caption=📱 Instagram Monitor - Story de zero.design.oficial")
-
-          else
-
-            echo "Detectada IMAGEN."
-
-            RESPONSE=$(curl -sS -X POST \
-              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto" \
-              -F "chat_id=${TELEGRAM_CHAT_ID}" \
-              -F "photo=@${FILE}" \
-              -F "caption=📱 Instagram Monitor - Story de zero.design.oficial")
+            exit 0
 
           fi
 
 
-          echo "Respuesta de Telegram:"
-          echo "$RESPONSE"
+          while IFS= read -r FILE; do
+
+            [ -z "$FILE" ] && continue
 
 
-          if ! echo "$RESPONSE" | grep -q '"ok":true'; then
-
-            echo "ERROR: Telegram no aceptó el archivo."
-
-            exit 1
-
-          fi
+            echo "Enviando:"
+            echo "$FILE"
 
 
-          echo "✅ Story enviada correctamente a Telegram."
+            if [[ "$FILE" == *.mp4 ]]; then
+
+              RESPONSE=$(curl -sS \
+                -X POST \
+                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendVideo" \
+                -F "chat_id=${TELEGRAM_CHAT_ID}" \
+                -F "video=@${FILE}" \
+                -F "caption=📱 Instagram Monitor — zero.design.oficial")
+
+            else
+
+              RESPONSE=$(curl -sS \
+                -X POST \
+                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto" \
+                -F "chat_id=${TELEGRAM_CHAT_ID}" \
+                -F "photo=@${FILE}" \
+                -F "caption=📱 Instagram Monitor — zero.design.oficial")
+
+            fi
+
+
+            echo "$RESPONSE"
+
+
+            if ! echo "$RESPONSE" | grep -q '"ok":true'; then
+
+              echo "❌ Error enviando a Telegram."
+
+              exit 1
+
+            fi
+
+
+            echo "✅ Enviado correctamente."
+
+          done < files.txt
 
 
       # ============================================================
-      # 4. LIMPIAR ARCHIVOS TEMPORALES
+      # 4. GUARDAR EL ESTADO EN GITHUB
+      # ============================================================
+
+      - name: Guardar estado
+        run: |
+
+          git config user.name "Instagram Monitor"
+
+          git config user.email "instagram-monitor@users.noreply.github.com"
+
+          git add data/instagram-state.json
+
+          if git diff --cached --quiet; then
+
+            echo "No hubo cambios en el estado."
+
+          else
+
+            git commit \
+              -m "Actualizar estado de Instagram"
+
+            git push
+
+          fi
+
+
+      # ============================================================
+      # 5. LIMPIAR ARCHIVOS TEMPORALES
       # ============================================================
 
       - name: Limpiar
         if: always()
         run: |
 
-          rm -f instagram_story.mp4
-          rm -f instagram_story.jpg
-          rm -f instagram_story.png
-          rm -f instagram_story.webp
-          rm -f media_filename.txt
+          rm -rf downloads
+
+          rm -f files.txt
+
+          rm -f sssinstagram-debug.html
+
+          rm -f sssinstagram-debug.png
 
           echo "Archivos temporales eliminados."
-
-
-      # ============================================================
-      # 5. DIAGNÓSTICO SI FALLA
-      # ============================================================
-
-      - name: Guardar diagnóstico
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: instagram-monitor-debug
-          path: |
-            sssinstagram-debug.html
-            sssinstagram-debug.png
-          retention-days: 1

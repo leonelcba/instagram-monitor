@@ -4,25 +4,56 @@ on:
   workflow_dispatch:
 
 jobs:
-  inspect-sssinstagram:
+  monitor-instagram:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Instalar Python y Playwright
+
+      # ============================================================
+      # 1. INSTALAR PLAYWRIGHT
+      # ============================================================
+
+      - name: Instalar Playwright
         run: |
           python -m pip install --upgrade pip
-          pip install playwright
+          pip install playwright requests
           playwright install --with-deps chromium
 
-      - name: Abrir SSSInstagram y buscar perfil
-        run: |
-          cat > test_sssinstagram.py <<'PY'
-          from playwright.sync_api import sync_playwright
-          import re
-          import time
 
-          INSTAGRAM_PROFILE = "https://www.instagram.com/zero.design.oficial/"
-          SSS_URL = "https://sssinstagram.com/es/story-saver"
+      # ============================================================
+      # 2. BUSCAR STORY EN SSSINSTAGRAM
+      # ============================================================
+
+      - name: Buscar Story
+        env:
+          INSTAGRAM_PROFILE: "https://www.instagram.com/zero.design.oficial/"
+          SSS_URL: "https://sssinstagram.com/es/story-saver"
+        run: |
+
+          cat > monitor_instagram.py <<'PY'
+
+          from playwright.sync_api import sync_playwright
+          import requests
+          import re
+          import os
+          import sys
+          from urllib.parse import urlparse
+
+
+          INSTAGRAM_PROFILE = os.environ["INSTAGRAM_PROFILE"]
+          SSS_URL = os.environ["SSS_URL"]
+
+
+          print("======================================")
+          print("INSTAGRAM MONITOR")
+          print("======================================")
+
+          print("Perfil:")
+          print(INSTAGRAM_PROFILE)
+
+          print("SSSInstagram:")
+          print(SSS_URL)
+
 
           with sync_playwright() as p:
 
@@ -30,7 +61,7 @@ jobs:
                   headless=True
               )
 
-              page = browser.new_page(
+              context = browser.new_context(
                   viewport={
                       "width": 1366,
                       "height": 900
@@ -43,9 +74,14 @@ jobs:
                   )
               )
 
-              print("======================================")
-              print("ABRIENDO SSSINSTAGRAM")
-              print("======================================")
+              page = context.new_page()
+
+
+              # ----------------------------------------------------
+              # ABRIR SSSINSTAGRAM
+              # ----------------------------------------------------
+
+              print("\nAbriendo SSSInstagram...")
 
               page.goto(
                   SSS_URL,
@@ -53,168 +89,445 @@ jobs:
                   timeout=60000
               )
 
+              page.wait_for_timeout(3000)
+
               print("Página cargada:")
               print(page.url)
 
-              # Mostrar inputs encontrados
-              print("\nINPUTS ENCONTRADOS:")
-              for i, element in enumerate(page.locator("input").all()):
-                  try:
-                      print(
-                          i,
-                          element.get_attribute("name"),
-                          element.get_attribute("placeholder"),
-                          element.get_attribute("type")
-                      )
-                  except:
-                      pass
 
-              # Buscar el primer campo de texto
-              input_box = page.locator(
+              # ----------------------------------------------------
+              # BUSCAR INPUT
+              # ----------------------------------------------------
+
+              inputs = page.locator(
                   "input[type='text'], input[type='url']"
-              ).first
+              )
 
-              if not input_box.is_visible():
+              if inputs.count() == 0:
                   raise Exception(
                       "No se encontró el campo para introducir la URL."
                   )
 
-              print("\nIntroduciendo perfil:")
-              print(INSTAGRAM_PROFILE)
+              input_box = inputs.first
+
+              print("\nIntroduciendo perfil...")
 
               input_box.fill(INSTAGRAM_PROFILE)
 
-              # Buscar botones
-              print("\nBOTONES ENCONTRADOS:")
 
-              buttons = page.locator("button")
+              # ----------------------------------------------------
+              # BUSCAR BOTÓN DESCARGAR
+              # ----------------------------------------------------
 
-              for i in range(buttons.count()):
-                  try:
-                      text = buttons.nth(i).inner_text()
-                      print(i, repr(text))
-                  except:
-                      pass
+              print("Buscando botón Descargar...")
 
-              # Intentar encontrar el botón Descargar
               download_button = page.get_by_role(
                   "button",
                   name=re.compile("descargar", re.I)
               ).first
 
               if not download_button.is_visible():
-                  # Algunas versiones pueden usar un enlace
+
                   download_button = page.get_by_text(
                       re.compile("descargar", re.I)
                   ).first
 
+
               if not download_button.is_visible():
+
                   raise Exception(
                       "No se encontró el botón Descargar."
                   )
 
-              print("\nPulsando Descargar...")
+
+              print("Pulsando Descargar...")
 
               download_button.click()
 
-              # Esperar que la página procese la consulta
+
+              # ----------------------------------------------------
+              # ESPERAR RESULTADOS
+              # ----------------------------------------------------
+
               print("Esperando resultados...")
 
               page.wait_for_timeout(10000)
 
-              print("\n======================================")
-              print("URL FINAL")
-              print("======================================")
-              print(page.url)
 
-              # Guardar HTML para inspección
-              html = page.content()
+              # ----------------------------------------------------
+              # INTENTAR IR A STORIES / HISTORIAS
+              # ----------------------------------------------------
 
-              with open("sssinstagram-result.html", "w", encoding="utf-8") as f:
-                  f.write(html)
+              print("\nBuscando pestaña Stories...")
 
-              # Captura de pantalla
-              page.screenshot(
-                  path="sssinstagram-result.png",
-                  full_page=True
-              )
+              story_patterns = [
+                  r"stories",
+                  r"story",
+                  r"historias",
+                  r"historia"
+              ]
 
-              print("\n======================================")
-              print("ENLACES ENCONTRADOS")
-              print("======================================")
+              clicked_story_tab = False
+
+              for pattern in story_patterns:
+
+                  try:
+
+                      elements = page.get_by_text(
+                          re.compile(pattern, re.I)
+                      )
+
+                      for i in range(min(elements.count(), 10)):
+
+                          element = elements.nth(i)
+
+                          try:
+
+                              if element.is_visible():
+
+                                  text = element.inner_text().strip()
+
+                                  if text:
+
+                                      print(
+                                          "Posible pestaña encontrada:",
+                                          repr(text)
+                                      )
+
+                                      element.click(
+                                          timeout=3000
+                                      )
+
+                                      page.wait_for_timeout(5000)
+
+                                      clicked_story_tab = True
+
+                                      break
+
+                          except:
+                              pass
+
+                      if clicked_story_tab:
+                          break
+
+                  except:
+                      pass
+
+
+              if clicked_story_tab:
+
+                  print("Se abrió la sección Stories/Historias.")
+
+              else:
+
+                  print(
+                      "No se pudo identificar la pestaña Stories. "
+                      "Continuando con los resultados encontrados."
+                  )
+
+
+              # ----------------------------------------------------
+              # OBTENER ENLACES DE MEDIA
+              # ----------------------------------------------------
+
+              print("\nBuscando archivos multimedia...")
 
               links = page.locator("a")
 
-              found = set()
+              media_urls = []
 
               for i in range(links.count()):
 
                   link = links.nth(i)
 
                   try:
+
                       href = link.get_attribute("href")
-                      text = link.inner_text().strip()
 
-                      if href and href not in found:
+                      if not href:
+                          continue
 
-                          found.add(href)
+                      href_lower = href.lower()
 
-                          print(
-                              f"[{i}] "
-                              f"texto={text!r} "
-                              f"url={href}"
-                          )
+
+                      # SSSInstagram proxy
+                      if "media.sssinstagram.com/get" not in href_lower:
+                          continue
+
+
+                      # Debe contener un formato multimedia
+                      if not any(
+                          ext in href_lower
+                          for ext in [
+                              ".jpg",
+                              ".jpeg",
+                              ".png",
+                              ".webp",
+                              ".mp4",
+                              ".mov"
+                          ]
+                      ):
+                          continue
+
+
+                      if href not in media_urls:
+
+                          media_urls.append(href)
 
                   except:
                       pass
 
-              print("\n======================================")
-              print("URLS QUE PARECEN ARCHIVOS")
-              print("======================================")
 
-              for href in found:
+              print(
+                  "Archivos multimedia encontrados:",
+                  len(media_urls)
+              )
 
-                  lower = href.lower()
 
-                  if any(
-                      extension in lower
-                      for extension in [
-                          ".jpg",
-                          ".jpeg",
-                          ".png",
-                          ".webp",
-                          ".mp4",
-                          ".mov"
-                      ]
+              if not media_urls:
+
+                  # Guardamos información para diagnóstico
+                  with open(
+                      "sssinstagram-debug.html",
+                      "w",
+                      encoding="utf-8"
+                  ) as f:
+                      f.write(page.content())
+
+                  page.screenshot(
+                      path="sssinstagram-debug.png",
+                      full_page=True
+                  )
+
+                  raise Exception(
+                      "No se encontró ninguna URL multimedia."
+                  )
+
+
+              # ----------------------------------------------------
+              # MOSTRAR SOLO INFORMACIÓN SEGURA
+              # ----------------------------------------------------
+
+              for i, url in enumerate(media_urls):
+
+                  parsed = urlparse(url)
+
+                  print(
+                      f"Media {i + 1}:",
+                      parsed.netloc,
+                      "→ URL temporal encontrada"
+                  )
+
+
+              # ----------------------------------------------------
+              # TOMAR EL PRIMER MEDIA
+              # ----------------------------------------------------
+
+              media_url = media_urls[0]
+
+              print("\nUsando el primer archivo encontrado.")
+
+
+              # ----------------------------------------------------
+              # DESCARGAR INMEDIATAMENTE
+              # ----------------------------------------------------
+
+              print("Descargando archivo temporal...")
+
+              response = requests.get(
+                  media_url,
+                  timeout=60,
+                  stream=True,
+                  headers={
+                      "User-Agent":
+                      "Mozilla/5.0"
+                  }
+              )
+
+              print(
+                  "HTTP:",
+                  response.status_code
+              )
+
+              if response.status_code != 200:
+
+                  raise Exception(
+                      f"No se pudo descargar el archivo. "
+                      f"HTTP {response.status_code}"
+                  )
+
+
+              content_type = response.headers.get(
+                  "content-type",
+                  ""
+              ).lower()
+
+
+              print(
+                  "Content-Type:",
+                  content_type
+              )
+
+
+              # ----------------------------------------------------
+              # DETERMINAR EXTENSIÓN
+              # ----------------------------------------------------
+
+              if "video" in content_type:
+
+                  filename = "instagram_story.mp4"
+
+              elif "png" in content_type:
+
+                  filename = "instagram_story.png"
+
+              elif "webp" in content_type:
+
+                  filename = "instagram_story.webp"
+
+              else:
+
+                  filename = "instagram_story.jpg"
+
+
+              # ----------------------------------------------------
+              # GUARDAR
+              # ----------------------------------------------------
+
+              with open(filename, "wb") as f:
+
+                  for chunk in response.iter_content(
+                      chunk_size=1024 * 1024
                   ):
 
-                      print(href)
+                      if chunk:
+                          f.write(chunk)
 
-              print("\n======================================")
-              print("TEXTO DE LA PÁGINA")
-              print("======================================")
 
-              text = page.locator("body").inner_text()
+              filesize = os.path.getsize(filename)
 
-              print(text[:15000])
+              print(
+                  "Archivo descargado:",
+                  filename
+              )
+
+              print(
+                  "Tamaño:",
+                  filesize,
+                  "bytes"
+              )
+
+
+              if filesize == 0:
+
+                  raise Exception(
+                      "El archivo descargado está vacío."
+                  )
+
+
+              # ----------------------------------------------------
+              # GUARDAR DATOS PARA EL SIGUIENTE STEP
+              # ----------------------------------------------------
+
+              with open(
+                  "media_filename.txt",
+                  "w"
+              ) as f:
+
+                  f.write(filename)
+
+
+              print("\nDescarga completada.")
 
               browser.close()
+
           PY
 
-          python test_sssinstagram.py
 
-      - name: Mostrar archivos generados
+          python monitor_instagram.py
+
+
+      # ============================================================
+      # 3. ENVIAR A TELEGRAM
+      # ============================================================
+
+      - name: Enviar Story a Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+
+          FILE=$(cat media_filename.txt)
+
+          echo "Archivo a enviar:"
+          echo "$FILE"
+
+          if [[ "$FILE" == *.mp4 ]]; then
+
+            echo "Detectado VIDEO."
+
+            RESPONSE=$(curl -sS -X POST \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendVideo" \
+              -F "chat_id=${TELEGRAM_CHAT_ID}" \
+              -F "video=@${FILE}" \
+              -F "caption=📱 Instagram Monitor - Story de zero.design.oficial")
+
+          else
+
+            echo "Detectada IMAGEN."
+
+            RESPONSE=$(curl -sS -X POST \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto" \
+              -F "chat_id=${TELEGRAM_CHAT_ID}" \
+              -F "photo=@${FILE}" \
+              -F "caption=📱 Instagram Monitor - Story de zero.design.oficial")
+
+          fi
+
+
+          echo "Respuesta de Telegram:"
+          echo "$RESPONSE"
+
+
+          if ! echo "$RESPONSE" | grep -q '"ok":true'; then
+
+            echo "ERROR: Telegram no aceptó el archivo."
+
+            exit 1
+
+          fi
+
+
+          echo "✅ Story enviada correctamente a Telegram."
+
+
+      # ============================================================
+      # 4. LIMPIAR ARCHIVOS TEMPORALES
+      # ============================================================
+
+      - name: Limpiar
         if: always()
         run: |
-          echo "Archivos generados:"
-          ls -lh
 
-      - name: Subir resultados de diagnóstico
-        if: always()
+          rm -f instagram_story.mp4
+          rm -f instagram_story.jpg
+          rm -f instagram_story.png
+          rm -f instagram_story.webp
+          rm -f media_filename.txt
+
+          echo "Archivos temporales eliminados."
+
+
+      # ============================================================
+      # 5. DIAGNÓSTICO SI FALLA
+      # ============================================================
+
+      - name: Guardar diagnóstico
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: sssinstagram-diagnostic
+          name: instagram-monitor-debug
           path: |
-            sssinstagram-result.html
-            sssinstagram-result.png
+            sssinstagram-debug.html
+            sssinstagram-debug.png
           retention-days: 1

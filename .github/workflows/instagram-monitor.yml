@@ -63,13 +63,9 @@ jobs:
               "https://sssinstagram.com/es/story-saver"
           )
 
-          ACCOUNTS_FILE = (
-              "data/instagram-accounts.json"
-          )
+          ACCOUNTS_FILE = "data/instagram-accounts.json"
 
-          STATE_FILE = (
-              "data/instagram-state.json"
-          )
+          STATE_FILE = "data/instagram-state.json"
 
           DOWNLOAD_DIR = "downloads"
 
@@ -136,14 +132,10 @@ jobs:
               account = account.strip()
 
 
-              # Permitir @cuenta
-
               if account.startswith("@"):
 
                   account = account[1:]
 
-
-              # Permitir accidentalmente una URL
 
               if "instagram.com/" in account:
 
@@ -249,7 +241,7 @@ jobs:
 
 
           # ========================================================
-          # FUNCIÓN: OBTENER SOLO LINKS REALES DE STORIES
+          # OBTENER SOLO LAS IMÁGENES REALES DE STORIES
           # ========================================================
 
           def collect_media_urls(page):
@@ -258,21 +250,28 @@ jobs:
 
 
               # ----------------------------------------------------
-              # IMPORTANTE:
+              # IMPORTANTE
               #
-              # SOLO buscamos <a href>.
+              # Solo buscamos:
               #
-              # NO buscamos img[src].
+              #     img.media-content__image
               #
-              # Esto evita:
-              # - miniaturas
+              # NO buscamos:
+              #
+              #     a[href]
+              #
+              #     img[src] genérico
+              #
+              # De esta manera evitamos:
+              #
+              # - botones de descarga
               # - previews
               # - fotos de perfil
               # - imágenes decorativas
               # ----------------------------------------------------
 
               elements = page.locator(
-                  "a[href]"
+                  "img.media-content__image"
               )
 
 
@@ -286,38 +285,38 @@ jobs:
                       element = elements.nth(i)
 
 
-                      href = element.get_attribute(
-                          "href"
+                      src = element.get_attribute(
+                          "src"
                       )
 
 
-                      if not href:
+                      if not src:
                           continue
 
 
-                      href_lower = href.lower()
+                      src_lower = src.lower()
 
 
                       # ------------------------------------------------
-                      # SOLO URLs multimedia de SSSInstagram
+                      # Solo aceptar multimedia servida por SSSInstagram
                       # ------------------------------------------------
 
                       if (
                           "media.sssinstagram.com/get"
-                          not in href_lower
+                          not in src_lower
                       ):
 
                           continue
 
 
                       # ------------------------------------------------
-                      # EVITAR DUPLICADOS EXACTOS DE URL
+                      # Evitar duplicados exactos
                       # ------------------------------------------------
 
-                      if href not in urls:
+                      if src not in urls:
 
                           urls.append(
-                              href
+                              src
                           )
 
 
@@ -330,7 +329,7 @@ jobs:
 
 
           # ========================================================
-          # FUNCIÓN: SCROLL INTERNO
+          # SCROLL INTERNO
           # ========================================================
 
           def scroll_internal_containers(page):
@@ -342,11 +341,13 @@ jobs:
                       const elements =
                           [...document.querySelectorAll('*')];
 
+
                       const scrollables =
                           elements.filter(el => {
 
                               const style =
                                   getComputedStyle(el);
+
 
                               return (
                                   el.scrollHeight >
@@ -755,7 +756,7 @@ jobs:
                       # =================================================
 
                       print(
-                          "\nBuscando enlaces multimedia "
+                          "\nBuscando imágenes reales "
                           "de Stories..."
                       )
 
@@ -766,7 +767,7 @@ jobs:
 
 
                       print(
-                          "Enlaces de Stories encontrados inicialmente:",
+                          "Stories encontradas inicialmente:",
                           len(media_urls)
                       )
 
@@ -774,11 +775,6 @@ jobs:
                       # =================================================
                       # SCROLL INTERNO
                       # =================================================
-
-                      previous_count = len(
-                          media_urls
-                      )
-
 
                       no_new_rounds = 0
 
@@ -830,7 +826,7 @@ jobs:
                               f"{round_number}/14: "
                               f"contenedores desplazados "
                               f"{moved}, "
-                              f"enlaces nuevos "
+                              f"Stories nuevas "
                               f"{new_urls}, "
                               f"total "
                               f"{len(media_urls)}"
@@ -878,7 +874,7 @@ jobs:
 
 
                       print(
-                          "\nEnlaces de Stories encontrados:",
+                          "\nStories encontradas:",
                           len(media_urls)
                       )
 
@@ -893,8 +889,6 @@ jobs:
                               "⚠️ No se encontraron "
                               "Stories para esta cuenta."
                           )
-
-                          page.close()
 
                           continue
 
@@ -1432,10 +1426,6 @@ jobs:
               )
 
 
-              # ====================================================
-              # CAPTION
-              # ====================================================
-
               caption = (
                   "📱 Instagram Monitor\n"
                   f"@{account}\n"
@@ -1756,3 +1746,4 @@ jobs:
           rm -f sssinstagram-debug.png
 
           echo "🧹 Limpieza completada."
+

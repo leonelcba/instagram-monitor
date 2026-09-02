@@ -19,6 +19,7 @@ jobs:
       # ============================================================
 
       - name: Descargar repositorio
+
         uses: actions/checkout@v4
 
 
@@ -27,9 +28,13 @@ jobs:
       # ============================================================
 
       - name: Instalar dependencias
+
         run: |
+
           python -m pip install --upgrade pip
+
           pip install playwright requests
+
           playwright install --with-deps chromium
 
 
@@ -40,6 +45,7 @@ jobs:
       - name: Buscar Stories de Instagram
 
         env:
+
           SSS_URL: "https://sssinstagram.com/es/story-saver"
 
         run: |
@@ -63,9 +69,13 @@ jobs:
               "https://sssinstagram.com/es/story-saver"
           )
 
-          ACCOUNTS_FILE = "data/instagram-accounts.json"
+          ACCOUNTS_FILE = (
+              "data/instagram-accounts.json"
+          )
 
-          STATE_FILE = "data/instagram-state.json"
+          STATE_FILE = (
+              "data/instagram-state.json"
+          )
 
           DOWNLOAD_DIR = "downloads"
 
@@ -129,13 +139,18 @@ jobs:
               ):
                   continue
 
+
               account = account.strip()
 
+
+              # Permitir @cuenta
 
               if account.startswith("@"):
 
                   account = account[1:]
 
+
+              # Permitir accidentalmente una URL
 
               if "instagram.com/" in account:
 
@@ -241,94 +256,138 @@ jobs:
 
 
           # ========================================================
-          # OBTENER SOLO LAS IMÁGENES REALES DE STORIES
+          # FUNCIÓN:
+          # OBTENER MEDIA DE CADA STORY
           # ========================================================
 
-          def collect_media_urls(page):
+          def collect_media(page):
 
-              urls = []
+              return page.evaluate(
+                  """
+                  () => {
+
+                      const result = [];
+
+                      const images =
+                          [...document.querySelectorAll(
+                              'img.media-content__image'
+                          )];
+
+                      for (const img of images) {
+
+                          let container = img;
+
+                          let download = null;
+
+                          /*
+                           * Buscar hacia arriba hasta encontrar
+                           * la tarjeta que contiene el botón
+                           * de descarga de ESTA Story.
+                           */
+
+                          for (
+                              let level = 0;
+                              level < 8 && container;
+                              level++
+                          ) {
+
+                              const candidate =
+                                  container.querySelector(
+                                      'a.download-btn[href]'
+                                  );
+
+                              if (candidate) {
+
+                                  download = candidate.href;
+
+                                  break;
+                              }
+
+                              container =
+                                  container.parentElement;
+                          }
 
 
-              # ----------------------------------------------------
-              # IMPORTANTE
-              #
-              # Solo buscamos:
-              #
-              #     img.media-content__image
-              #
-              # NO buscamos:
-              #
-              #     a[href]
-              #
-              #     img[src] genérico
-              #
-              # De esta manera evitamos:
-              #
-              # - botones de descarga
-              # - previews
-              # - fotos de perfil
-              # - imágenes decorativas
-              # ----------------------------------------------------
+                          const preview =
+                              img.getAttribute('src');
 
-              elements = page.locator(
-                  "img.media-content__image"
+
+                          /*
+                           * El enlace de descarga tiene prioridad.
+                           *
+                           * Para una imagen:
+                           *     descarga -> JPG/PNG/etc.
+                           *
+                           * Para un video:
+                           *     descarga -> MP4/video.
+                           *
+                           * Si por alguna razón no existe,
+                           * usamos la imagen como respaldo.
+                           */
+
+                          const mediaUrl =
+                              download || preview;
+
+
+                          if (!mediaUrl)
+                              continue;
+
+
+                          if (
+                              !mediaUrl.includes(
+                                  'media.sssinstagram.com/get'
+                              )
+                          ) {
+                              continue;
+                          }
+
+
+                          result.push({
+
+                              url: mediaUrl,
+
+                              preview: preview,
+
+                              has_download:
+                                  !!download
+
+                          });
+
+                      }
+
+
+                      /*
+                       * Eliminar duplicados.
+                       */
+
+                      const seen =
+                          new Set();
+
+                      const unique = [];
+
+
+                      for (const item of result) {
+
+                          if (
+                              !seen.has(item.url)
+                          ) {
+
+                              seen.add(item.url);
+
+                              unique.push(item);
+                          }
+
+                      }
+
+
+                      return unique;
+                  }
+                  """
               )
 
 
-              count = elements.count()
-
-
-              for i in range(count):
-
-                  try:
-
-                      element = elements.nth(i)
-
-
-                      src = element.get_attribute(
-                          "src"
-                      )
-
-
-                      if not src:
-                          continue
-
-
-                      src_lower = src.lower()
-
-
-                      # ------------------------------------------------
-                      # Solo aceptar multimedia servida por SSSInstagram
-                      # ------------------------------------------------
-
-                      if (
-                          "media.sssinstagram.com/get"
-                          not in src_lower
-                      ):
-
-                          continue
-
-
-                      # ------------------------------------------------
-                      # Evitar duplicados exactos
-                      # ------------------------------------------------
-
-                      if src not in urls:
-
-                          urls.append(
-                              src
-                          )
-
-
-                  except Exception:
-
-                      pass
-
-
-              return urls
-
-
           # ========================================================
+          # FUNCIÓN:
           # SCROLL INTERNO
           # ========================================================
 
@@ -350,9 +409,12 @@ jobs:
 
 
                               return (
+
                                   el.scrollHeight >
                                   el.clientHeight + 100
+
                                   &&
+
                                   (
                                       style.overflowY === 'auto'
                                       ||
@@ -362,6 +424,7 @@ jobs:
                                       ||
                                       style.overflow === 'scroll'
                                   )
+
                               );
 
                           });
@@ -370,7 +433,9 @@ jobs:
                       let moved = 0;
 
 
-                      for (const el of scrollables) {
+                      for (
+                          const el of scrollables
+                      ) {
 
                           const oldTop =
                               el.scrollTop;
@@ -404,10 +469,45 @@ jobs:
 
 
                       return moved;
-
                   }
                   """
               )
+
+
+          # ========================================================
+          # FUNCIÓN:
+          # OBTENER HASH SHA-256
+          # ========================================================
+
+          def calculate_hash(filename):
+
+              sha256 =
+                  hashlib.sha256()
+
+
+              with open(
+                  filename,
+                  "rb"
+              ) as f:
+
+                  while True:
+
+                      chunk =
+                          f.read(
+                              1024 * 1024
+                          )
+
+
+                      if not chunk:
+                          break
+
+
+                      sha256.update(
+                          chunk
+                      )
+
+
+              return sha256.hexdigest()
 
 
           # ========================================================
@@ -416,28 +516,30 @@ jobs:
 
           with sync_playwright() as p:
 
-              browser = p.chromium.launch(
-                  headless=True
-              )
-
-
-              context = browser.new_context(
-
-                  viewport={
-                      "width": 1366,
-                      "height": 900
-                  },
-
-                  user_agent=(
-                      "Mozilla/5.0 "
-                      "(X11; Linux x86_64) "
-                      "AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) "
-                      "Chrome/139.0.0.0 "
-                      "Safari/537.36"
+              browser =
+                  p.chromium.launch(
+                      headless=True
                   )
 
-              )
+
+              context =
+                  browser.new_context(
+
+                      viewport={
+                          "width": 1366,
+                          "height": 900
+                      },
+
+                      user_agent=(
+                          "Mozilla/5.0 "
+                          "(X11; Linux x86_64) "
+                          "AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) "
+                          "Chrome/139.0.0.0 "
+                          "Safari/537.36"
+                      )
+
+                  )
 
 
               # ====================================================
@@ -475,9 +577,8 @@ jobs:
                   # ESTADO DE ESTA CUENTA
                   # =================================================
 
-                  account_state = state.get(
-                      account
-                  )
+                  account_state =
+                      state.get(account)
 
 
                   legacy_state = False
@@ -488,12 +589,13 @@ jobs:
                       dict
                   ):
 
-                      known_hashes = set(
-                          account_state.get(
-                              "hashes",
-                              []
+                      known_hashes =
+                          set(
+                              account_state.get(
+                                  "hashes",
+                                  []
+                              )
                           )
-                      )
 
 
                   elif isinstance(
@@ -511,9 +613,8 @@ jobs:
                       known_hashes = set()
 
 
-                  account_is_new = (
+                  account_is_new =
                       account not in state
-                  )
 
 
                   print(
@@ -526,7 +627,8 @@ jobs:
                   # NUEVA PÁGINA
                   # =================================================
 
-                  page = context.new_page()
+                  page =
+                      context.new_page()
 
 
                   try:
@@ -561,10 +663,11 @@ jobs:
                       )
 
 
-                      input_box = page.locator(
-                          "input[type='text'], "
-                          "input[type='url']"
-                      ).first
+                      input_box =
+                          page.locator(
+                              "input[type='text'], "
+                              "input[type='url']"
+                          ).first
 
 
                       if not input_box.is_visible():
@@ -589,7 +692,7 @@ jobs:
                       )
 
 
-                      download_button = (
+                      download_button =
                           page.get_by_role(
                               "button",
                               name=re.compile(
@@ -597,19 +700,17 @@ jobs:
                                   re.I
                               )
                           ).first
-                      )
 
 
                       if not download_button.is_visible():
 
-                          download_button = (
+                          download_button =
                               page.get_by_text(
                                   re.compile(
                                       "descargar",
                                       re.I
                                   )
                               ).first
-                          )
 
 
                       if not download_button.is_visible():
@@ -655,10 +756,12 @@ jobs:
 
 
                       patterns = [
+
                           r"stories",
                           r"story",
                           r"historias",
                           r"historia"
+
                       ]
 
 
@@ -666,22 +769,25 @@ jobs:
 
                           try:
 
-                              elements = page.get_by_text(
-                                  re.compile(
-                                      pattern,
-                                      re.I
+                              elements =
+                                  page.get_by_text(
+                                      re.compile(
+                                          pattern,
+                                          re.I
+                                      )
                                   )
-                              )
 
 
-                              count = elements.count()
+                              count =
+                                  elements.count()
 
 
                               for i in range(
                                   min(count, 15)
                               ):
 
-                                  element = elements.nth(i)
+                                  element =
+                                      elements.nth(i)
 
 
                                   try:
@@ -690,11 +796,8 @@ jobs:
                                           continue
 
 
-                                      text = (
-                                          element
-                                          .inner_text()
-                                          .strip()
-                                      )
+                                      text =
+                                          element.inner_text().strip()
 
 
                                       if not text:
@@ -718,6 +821,7 @@ jobs:
 
 
                                       story_tab_found = True
+
 
                                       break
 
@@ -752,23 +856,21 @@ jobs:
 
 
                       # =================================================
-                      # OBTENER STORIES
+                      # OBTENER STORIES INICIALES
                       # =================================================
 
                       print(
-                          "\nBuscando imágenes reales "
-                          "de Stories..."
+                          "\nBuscando Stories..."
                       )
 
 
-                      media_urls = collect_media_urls(
-                          page
-                      )
+                      media_items =
+                          collect_media(page)
 
 
                       print(
                           "Stories encontradas inicialmente:",
-                          len(media_urls)
+                          len(media_items)
                       )
 
 
@@ -790,9 +892,10 @@ jobs:
                           15
                       ):
 
-                          moved = scroll_internal_containers(
-                              page
-                          )
+                          moved =
+                              scroll_internal_containers(
+                                  page
+                              )
 
 
                           page.wait_for_timeout(
@@ -800,25 +903,40 @@ jobs:
                           )
 
 
-                          current_urls = (
-                              collect_media_urls(
+                          current_items =
+                              collect_media(
                                   page
                               )
-                          )
 
 
-                          new_urls = 0
+                          existing_urls =
+                              set(
+                                  item["url"]
+                                  for item in media_items
+                              )
 
 
-                          for url in current_urls:
+                          new_items = []
 
-                              if url not in media_urls:
 
-                                  media_urls.append(
-                                      url
+                          for item in current_items:
+
+                              if (
+                                  item["url"]
+                                  not in existing_urls
+                              ):
+
+                                  media_items.append(
+                                      item
                                   )
 
-                                  new_urls += 1
+                                  existing_urls.add(
+                                      item["url"]
+                                  )
+
+                                  new_items.append(
+                                      item
+                                  )
 
 
                           print(
@@ -827,13 +945,13 @@ jobs:
                               f"contenedores desplazados "
                               f"{moved}, "
                               f"Stories nuevas "
-                              f"{new_urls}, "
+                              f"{len(new_items)}, "
                               f"total "
-                              f"{len(media_urls)}"
+                              f"{len(media_items)}"
                           )
 
 
-                          if new_urls == 0:
+                          if len(new_items) == 0:
 
                               no_new_rounds += 1
 
@@ -844,7 +962,8 @@ jobs:
 
                           if (
                               moved == 0
-                              or no_new_rounds >= 3
+                              or
+                              no_new_rounds >= 3
                           ):
 
                               print(
@@ -859,23 +978,38 @@ jobs:
                       # COMPROBACIÓN FINAL
                       # =================================================
 
-                      final_urls = collect_media_urls(
-                          page
-                      )
+                      final_items =
+                          collect_media(
+                              page
+                          )
 
 
-                      for url in final_urls:
+                      existing_urls =
+                          set(
+                              item["url"]
+                              for item in media_items
+                          )
 
-                          if url not in media_urls:
 
-                              media_urls.append(
-                                  url
+                      for item in final_items:
+
+                          if (
+                              item["url"]
+                              not in existing_urls
+                          ):
+
+                              media_items.append(
+                                  item
+                              )
+
+                              existing_urls.add(
+                                  item["url"]
                               )
 
 
                       print(
-                          "\nStories encontradas:",
-                          len(media_urls)
+                          "\nStories totales encontradas:",
+                          len(media_items)
                       )
 
 
@@ -883,7 +1017,7 @@ jobs:
                       # SI NO ENCONTRÓ STORIES
                       # =================================================
 
-                      if not media_urls:
+                      if not media_items:
 
                           print(
                               "⚠️ No se encontraron "
@@ -894,17 +1028,32 @@ jobs:
 
 
                       # =================================================
-                      # PROCESAR MEDIA
+                      # PROCESAR CADA STORY
                       # =================================================
 
-                      for media_index, media_url in enumerate(
-                          media_urls
+                      pending_hashes = set()
+
+
+                      for media_index, item in enumerate(
+                          media_items
                       ):
 
+                          media_url =
+                              item["url"]
+
+
                           print(
-                              f"\nProcesando Story "
+                              "\n----------------------------------------"
+                          )
+
+                          print(
+                              f"Procesando Story "
                               f"{media_index + 1}/"
-                              f"{len(media_urls)}..."
+                              f"{len(media_items)}"
+                          )
+
+                          print(
+                              "URL encontrada."
                           )
 
 
@@ -919,20 +1068,21 @@ jobs:
 
                           try:
 
-                              response = requests.get(
+                              response =
+                                  requests.get(
 
-                                  media_url,
+                                      media_url,
 
-                                  stream=True,
+                                      stream=True,
 
-                                  timeout=60,
+                                      timeout=60,
 
-                                  headers={
-                                      "User-Agent":
-                                      "Mozilla/5.0"
-                                  }
+                                      headers={
+                                          "User-Agent":
+                                          "Mozilla/5.0"
+                                      }
 
-                              )
+                                  )
 
                           except Exception as e:
 
@@ -959,49 +1109,82 @@ jobs:
                               continue
 
 
-                          content_type = (
-                              response
-                              .headers
-                              .get(
+                          # =========================================
+                          # CONTENT TYPE
+                          # =========================================
+
+                          content_type =
+                              response.headers.get(
                                   "content-type",
                                   ""
-                              )
-                              .lower()
+                              ).lower()
+
+
+                          print(
+                              "Content-Type:",
+                              content_type
                           )
 
 
                           # =========================================
-                          # EXTENSIÓN
+                          # DETERMINAR TIPO
                           # =========================================
 
-                          if "video" in content_type:
+                          if (
+                              "video" in content_type
+                          ):
 
                               extension = ".mp4"
 
-                          elif "png" in content_type:
+                              media_type = "video"
+
+
+                              print(
+                                  "🎥 Detectado VIDEO."
+                              )
+
+                          elif (
+                              "png" in content_type
+                          ):
 
                               extension = ".png"
 
-                          elif "webp" in content_type:
+                              media_type = "photo"
+
+
+                          elif (
+                              "webp" in content_type
+                          ):
 
                               extension = ".webp"
+
+                              media_type = "photo"
+
 
                           else:
 
                               extension = ".jpg"
 
+                              media_type = "photo"
+
+
+                          # =========================================
+                          # ARCHIVO TEMPORAL
+                          # =========================================
 
                           temp_filename = (
+
                               f"{DOWNLOAD_DIR}/"
                               f"temp_"
                               f"{account_index}_"
                               f"{media_index}"
                               f"{extension}"
+
                           )
 
 
                           # =========================================
-                          # GUARDAR TEMPORAL
+                          # GUARDAR
                           # =========================================
 
                           try:
@@ -1031,9 +1214,14 @@ jobs:
                               continue
 
 
-                          filesize = os.path.getsize(
-                              temp_filename
-                          )
+                          # =========================================
+                          # TAMAÑO
+                          # =========================================
+
+                          filesize =
+                              os.path.getsize(
+                                  temp_filename
+                              )
 
 
                           print(
@@ -1065,33 +1253,10 @@ jobs:
                           )
 
 
-                          sha256 = hashlib.sha256()
-
-
-                          with open(
-                              temp_filename,
-                              "rb"
-                          ) as f:
-
-                              while True:
-
-                                  chunk = f.read(
-                                      1024 * 1024
-                                  )
-
-
-                                  if not chunk:
-                                      break
-
-
-                                  sha256.update(
-                                      chunk
-                                  )
-
-
-                          file_hash = (
-                              sha256.hexdigest()
-                          )
+                          file_hash =
+                              calculate_hash(
+                                  temp_filename
+                              )
 
 
                           print(
@@ -1101,21 +1266,43 @@ jobs:
 
 
                           # =========================================
-                          # COMPROBAR DUPLICADO
+                          # DUPLICADO YA ENVIADO
                           # =========================================
 
-                          if file_hash in known_hashes:
+                          if (
+                              file_hash
+                              in known_hashes
+                          ):
 
                               print(
                                   "⏭️ Esta Story ya "
                                   "fue enviada."
                               )
 
-
                               os.remove(
                                   temp_filename
                               )
 
+                              continue
+
+
+                          # =========================================
+                          # DUPLICADO DENTRO DE ESTA EJECUCIÓN
+                          # =========================================
+
+                          if (
+                              file_hash
+                              in pending_hashes
+                          ):
+
+                              print(
+                                  "⏭️ Esta Story está "
+                                  "duplicada en esta ejecución."
+                              )
+
+                              os.remove(
+                                  temp_filename
+                              )
 
                               continue
 
@@ -1124,13 +1311,16 @@ jobs:
                           # CUENTA NUEVA
                           # =========================================
 
-                          if account_is_new or legacy_state:
+                          if (
+                              account_is_new
+                              or
+                              legacy_state
+                          ):
 
                               print(
                                   "🆕 Story actual de "
                                   "cuenta nueva."
                               )
-
 
                               print(
                                   "Se registra como conocida "
@@ -1152,13 +1342,15 @@ jobs:
 
 
                           # =========================================
-                          # NUEVA STORY
+                          # STORY NUEVA
                           # =========================================
 
                           filename = (
+
                               f"{DOWNLOAD_DIR}/"
                               f"{file_hash}"
                               f"{extension}"
+
                           )
 
 
@@ -1170,24 +1362,44 @@ jobs:
 
                           downloaded.append({
 
-                              "account": account,
+                              "account":
+                                  account,
 
-                              "hash": file_hash,
+                              "hash":
+                                  file_hash,
 
-                              "filename": filename,
+                              "filename":
+                                  filename,
 
-                              "type": (
-                                  "video"
-                                  if extension == ".mp4"
-                                  else "photo"
-                              )
+                              "type":
+                                  media_type
 
                           })
+
+
+                          pending_hashes.add(
+                              file_hash
+                          )
 
 
                           print(
                               "🆕 Story nueva encontrada."
                           )
+
+
+                          if media_type == "video":
+
+                              print(
+                                  "🎥 Se guardará "
+                                  "como VIDEO."
+                              )
+
+                          else:
+
+                              print(
+                                  "🖼️ Se guardará "
+                                  "como IMAGEN."
+                              )
 
 
                   except Exception as e:
@@ -1196,7 +1408,6 @@ jobs:
                           f"❌ Error procesando "
                           f"{account}:"
                       )
-
 
                       print(
                           str(e)
@@ -1217,19 +1428,59 @@ jobs:
                   # =================================================
                   # GUARDAR ESTADO DE CUENTA
                   # =================================================
+                  #
+                  # IMPORTANTE:
+                  #
+                  # Las Stories nuevas NO se agregan todavía
+                  # al estado si la cuenta ya existía.
+                  #
+                  # Eso se hará únicamente después de que
+                  # Telegram confirme el envío.
+                  #
+                  # En cuentas nuevas, las Stories actuales
+                  # sí quedan como baseline.
+                  # =================================================
+
+                  state_hashes =
+                      set(
+                          state.get(
+                              account,
+                              {}
+                          ).get(
+                              "hashes",
+                              []
+                          )
+                          if isinstance(
+                              state.get(account),
+                              dict
+                          )
+                          else []
+                      )
+
+
+                  if (
+                      account_is_new
+                      or
+                      legacy_state
+                  ):
+
+                      state_hashes =
+                          known_hashes
+
 
                   state[account] = {
 
-                      "hashes": list(
-                          known_hashes
-                      )[-100:]
+                      "hashes":
+                          list(
+                              state_hashes
+                          )[-100:]
 
                   }
 
 
                   print(
                       f"\nEstado de {account}: "
-                      f"{len(known_hashes)} hashes."
+                      f"{len(state_hashes)} hashes."
                   )
 
 
@@ -1320,10 +1571,11 @@ jobs:
 
         env:
 
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_TOKEN:
+            ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-
+          TELEGRAM_CHAT_ID:
+            ${{ secrets.TELEGRAM_CHAT_ID }}
 
         run: |
 
@@ -1337,9 +1589,20 @@ jobs:
 
 
           COUNT=$(python -c "
+
           import json
-          with open('files.json', encoding='utf-8') as f:
-              print(len(json.load(f)))
+
+          with open(
+              'files.json',
+              encoding='utf-8'
+          ) as f:
+
+              print(
+                  len(
+                      json.load(f)
+                  )
+              )
+
           ")
 
 
@@ -1362,14 +1625,16 @@ jobs:
           import subprocess
 
 
-          TOKEN = os.environ[
-              "TELEGRAM_BOT_TOKEN"
-          ]
+          TOKEN =
+              os.environ[
+                  "TELEGRAM_BOT_TOKEN"
+              ]
 
 
-          CHAT_ID = os.environ[
-              "TELEGRAM_CHAT_ID"
-          ]
+          CHAT_ID =
+              os.environ[
+                  "TELEGRAM_CHAT_ID"
+              ]
 
 
           with open(
@@ -1378,7 +1643,8 @@ jobs:
               encoding="utf-8"
           ) as f:
 
-              files = json.load(f)
+              files =
+                  json.load(f)
 
 
           successfully_sent = []
@@ -1386,24 +1652,28 @@ jobs:
 
           for item in files:
 
-              filename = item[
-                  "filename"
-              ]
+              filename =
+                  item[
+                      "filename"
+                  ]
 
 
-              file_hash = item[
-                  "hash"
-              ]
+              file_hash =
+                  item[
+                      "hash"
+                  ]
 
 
-              account = item[
-                  "account"
-              ]
+              account =
+                  item[
+                      "account"
+                  ]
 
 
-              media_type = item[
-                  "type"
-              ]
+              media_type =
+                  item[
+                      "type"
+                  ]
 
 
               print(
@@ -1422,14 +1692,25 @@ jobs:
 
 
               print(
+                  f"Tipo: {media_type}"
+              )
+
+
+              print(
                   "================================"
               )
 
 
+              # ====================================================
+              # CAPTION
+              # ====================================================
+
               caption = (
+
                   "📱 Instagram Monitor\n"
                   f"@{account}\n"
                   "Nueva Story"
+
               )
 
 
@@ -1440,8 +1721,10 @@ jobs:
               if media_type == "video":
 
                   endpoint = (
+
                       "https://api.telegram.org/"
                       f"bot{TOKEN}/sendVideo"
+
                   )
 
 
@@ -1479,8 +1762,10 @@ jobs:
               else:
 
                   endpoint = (
+
                       "https://api.telegram.org/"
                       f"bot{TOKEN}/sendPhoto"
+
                   )
 
 
@@ -1515,18 +1800,20 @@ jobs:
               # ENVIAR
               # ====================================================
 
-              result = subprocess.run(
+              result =
+                  subprocess.run(
 
-                  command,
+                      command,
 
-                  capture_output=True,
+                      capture_output=True,
 
-                  text=True
+                      text=True
 
-              )
+                  )
 
 
-              response = result.stdout
+              response =
+                  result.stdout
 
 
               print(
@@ -1543,7 +1830,23 @@ jobs:
               # COMPROBAR RESPUESTA
               # ====================================================
 
-              if '"ok":true' in response:
+              try:
+
+                  telegram_result =
+                      json.loads(
+                          response
+                      )
+
+              except Exception:
+
+                  telegram_result = {}
+
+
+              if (
+                  telegram_result.get(
+                      "ok"
+                  )
+              ):
 
                   print(
                       "✅ Enviada correctamente."
@@ -1552,9 +1855,11 @@ jobs:
 
                   successfully_sent.append({
 
-                      "account": account,
+                      "account":
+                          account,
 
-                      "hash": file_hash
+                      "hash":
+                          file_hash
 
                   })
 
@@ -1570,9 +1875,8 @@ jobs:
           # CARGAR ESTADO
           # ========================================================
 
-          state_file = (
+          state_file =
               "data/instagram-state.json"
-          )
 
 
           if os.path.exists(
@@ -1587,9 +1891,10 @@ jobs:
                       encoding="utf-8"
                   ) as f:
 
-                      state = json.load(f)
+                      state =
+                          json.load(f)
 
-              except:
+              except Exception:
 
                   state = {}
 
@@ -1604,14 +1909,16 @@ jobs:
 
           for item in successfully_sent:
 
-              account = item[
-                  "account"
-              ]
+              account =
+                  item[
+                      "account"
+                  ]
 
 
-              file_hash = item[
-                  "hash"
-              ]
+              file_hash =
+                  item[
+                      "hash"
+                  ]
 
 
               if not isinstance(
@@ -1626,17 +1933,13 @@ jobs:
                   }
 
 
-              hashes = set(
-
-                  state[account].get(
-
-                      "hashes",
-
-                      []
-
+              hashes =
+                  set(
+                      state[account].get(
+                          "hashes",
+                          []
+                      )
                   )
-
-              )
 
 
               hashes.add(
@@ -1646,9 +1949,10 @@ jobs:
 
               state[account][
                   "hashes"
-              ] = list(
-                  hashes
-              )[-100:]
+              ] =
+                  list(
+                      hashes
+                  )[-100:]
 
 
           # ========================================================
@@ -1662,15 +1966,10 @@ jobs:
           ) as f:
 
               json.dump(
-
                   state,
-
                   f,
-
                   indent=2,
-
                   ensure_ascii=False
-
               )
 
 
@@ -1681,13 +1980,16 @@ jobs:
 
           print(
               "Stories enviadas correctamente:",
-              len(successfully_sent)
+              len(
+                  successfully_sent
+              )
           )
 
 
           print(
               "================================"
           )
+
 
           PY
 
@@ -1746,4 +2048,3 @@ jobs:
           rm -f sssinstagram-debug.png
 
           echo "🧹 Limpieza completada."
-

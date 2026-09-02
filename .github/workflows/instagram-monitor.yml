@@ -52,6 +52,7 @@ jobs:
           import json
           import os
           import re
+          import time
 
 
           # ========================================================
@@ -138,7 +139,7 @@ jobs:
               account = account.strip()
 
 
-              # Permitir que el usuario escriba @cuenta
+              # Permitir @cuenta
               if account.startswith("@"):
 
                   account = account[1:]
@@ -247,6 +248,67 @@ jobs:
           # ========================================================
 
           downloaded = []
+
+
+          # ========================================================
+          # FUNCIÓN: BUSCAR URLs MULTIMEDIA
+          # ========================================================
+
+          def collect_media_urls(page):
+
+              media_urls = []
+
+              links = page.locator(
+                  "a"
+              )
+
+              try:
+
+                  total_links = links.count()
+
+              except Exception:
+
+                  total_links = 0
+
+
+              for i in range(
+                  total_links
+              ):
+
+                  try:
+
+                      href = (
+                          links
+                          .nth(i)
+                          .get_attribute(
+                              "href"
+                          )
+                      )
+
+                      if not href:
+                          continue
+
+
+                      if (
+                          "media.sssinstagram.com/get"
+                          not in href.lower()
+                      ):
+
+                          continue
+
+
+                      if href not in media_urls:
+
+                          media_urls.append(
+                              href
+                          )
+
+                  except Exception:
+
+                      pass
+
+
+              return media_urls
 
 
           # ========================================================
@@ -361,7 +423,7 @@ jobs:
 
 
                   # =================================================
-                  # NUEVA PÁGINA PARA ESTA CUENTA
+                  # NUEVA PÁGINA
                   # =================================================
 
                   page = context.new_page()
@@ -580,7 +642,7 @@ jobs:
 
 
                       # =============================================
-                      # OBTENER URLS MULTIMEDIA
+                      # OBTENER URLs MULTIMEDIA
                       # =============================================
 
                       print(
@@ -588,54 +650,194 @@ jobs:
                       )
 
 
-                      links = page.locator(
-                          "a"
+                      media_urls = collect_media_urls(
+                          page
                       )
 
 
-                      media_urls = []
+                      print(
+                          "URLs multimedia encontradas inicialmente:",
+                          len(media_urls)
+                      )
 
 
-                      for i in range(
-                          links.count()
+                      # =============================================
+                      # SCROLL PARA CARGAR MÁS STORIES
+                      # =============================================
+                      #
+                      # SSSInstagram puede mostrar solamente una
+                      # parte de las Stories inicialmente.
+                      #
+                      # Hacemos varios desplazamientos y después
+                      # de cada uno volvemos a buscar URLs.
+                      #
+                      # Nos detenemos después de varios intentos
+                      # consecutivos sin encontrar URLs nuevas.
+                      # =============================================
+
+                      print(
+                          "\n🔽 Buscando Stories adicionales mediante scroll..."
+                      )
+
+
+                      previous_count = len(
+                          media_urls
+                      )
+
+                      no_change_count = 0
+
+                      max_scrolls = 15
+
+
+                      for scroll_number in range(
+                          1,
+                          max_scrolls + 1
                       ):
+
+                          print(
+                              f"Scroll {scroll_number}/{max_scrolls}..."
+                          )
+
 
                           try:
 
-                              href = (
-                                  links
-                                  .nth(i)
-                                  .get_attribute(
-                                      "href"
-                                  )
+                              page.mouse.wheel(
+                                  0,
+                                  1200
                               )
-
-
-                              if not href:
-                                  continue
-
-
-                              if (
-                                  "media.sssinstagram.com/get"
-                                  not in href.lower()
-                              ):
-                                  continue
-
-
-                              if href not in media_urls:
-
-                                  media_urls.append(
-                                      href
-                                  )
-
 
                           except Exception:
 
                               pass
 
 
+                          page.wait_for_timeout(
+                              2000
+                          )
+
+
+                          new_urls = collect_media_urls(
+                              page
+                          )
+
+
+                          added = 0
+
+
+                          for url in new_urls:
+
+                              if url not in media_urls:
+
+                                  media_urls.append(
+                                      url
+                                  )
+
+                                  added += 1
+
+
+                          print(
+                              "  URLs nuevas encontradas:",
+                              added
+                          )
+
+                          print(
+                              "  Total acumulado:",
+                              len(media_urls)
+                          )
+
+
+                          if len(media_urls) == previous_count:
+
+                              no_change_count += 1
+
+                          else:
+
+                              no_change_count = 0
+
+
+                          previous_count = len(
+                              media_urls
+                          )
+
+
+                          # Si durante 3 scrolls seguidos
+                          # no aparece nada nuevo, damos por
+                          # terminada la búsqueda.
+
+                          if no_change_count >= 3:
+
+                              print(
+                                  "⏹️ No aparecen más "
+                                  "URLs nuevas."
+                              )
+
+                              break
+
+
+                      # =============================================
+                      # SEGUNDO INTENTO: IR AL FINAL DE LA PÁGINA
+                      # =============================================
+                      #
+                      # Algunas páginas utilizan carga diferida.
+                      # Por eso hacemos un último desplazamiento
+                      # directo al final y volvemos a comprobar.
+                      # =============================================
+
                       print(
-                          "URLs multimedia encontradas:",
+                          "\n🔽 Comprobación final de contenido..."
+                      )
+
+
+                      try:
+
+                          page.evaluate(
+                              """
+                              () => {
+                                  window.scrollTo(
+                                      0,
+                                      document.body.scrollHeight
+                                  );
+                              }
+                              """
+                          )
+
+                      except Exception:
+
+                          pass
+
+
+                      page.wait_for_timeout(
+                          3000
+                      )
+
+
+                      final_urls = collect_media_urls(
+                          page
+                      )
+
+
+                      added_final = 0
+
+
+                      for url in final_urls:
+
+                          if url not in media_urls:
+
+                              media_urls.append(
+                                  url
+                              )
+
+                              added_final += 1
+
+
+                      print(
+                          "URLs adicionales en comprobación final:",
+                          added_final
+                      )
+
+
+                      print(
+                          "\nURLs multimedia encontradas:",
                           len(media_urls)
                       )
 

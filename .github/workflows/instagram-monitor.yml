@@ -6,17 +6,20 @@ on:
   schedule:
     - cron: '0 * * * *'
 
+
 jobs:
+
   monitor-instagram:
+
     runs-on: ubuntu-latest
 
     steps:
 
       # ============================================================
-      # 1. INSTALAR PLAYWRIGHT
+      # 1. INSTALAR PYTHON + PLAYWRIGHT
       # ============================================================
 
-      - name: Instalar Playwright
+      - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
           pip install playwright requests
@@ -24,13 +27,14 @@ jobs:
 
 
       # ============================================================
-      # 2. BUSCAR STORIES
+      # 2. OBTENER STORIES
       # ============================================================
 
-      - name: Buscar Stories
+      - name: Buscar Stories de Instagram
         env:
           INSTAGRAM_PROFILE: "https://www.instagram.com/zero.design.oficial/"
           SSS_URL: "https://sssinstagram.com/es/story-saver"
+
         run: |
 
           cat > monitor_instagram.py <<'PY'
@@ -44,13 +48,36 @@ jobs:
           from urllib.parse import urlparse, parse_qs, unquote
 
 
+          # ========================================================
+          # CONFIGURACIÓN
+          # ========================================================
+
           PROFILE = "zero.design.oficial"
-          PROFILE_URL = f"https://www.instagram.com/{PROFILE}/"
 
-          STATE_FILE = "data/instagram-state.json"
+          PROFILE_URL = (
+              f"https://www.instagram.com/{PROFILE}/"
+          )
 
-          os.makedirs("downloads", exist_ok=True)
-          os.makedirs("data", exist_ok=True)
+          SSS_URL = (
+              "https://sssinstagram.com/es/story-saver"
+          )
+
+          STATE_FILE = (
+              "data/instagram-state.json"
+          )
+
+          DOWNLOAD_DIR = "downloads"
+
+
+          os.makedirs(
+              DOWNLOAD_DIR,
+              exist_ok=True
+          )
+
+          os.makedirs(
+              "data",
+              exist_ok=True
+          )
 
 
           # ========================================================
@@ -59,40 +86,65 @@ jobs:
 
           if os.path.exists(STATE_FILE):
 
-              with open(
-                  STATE_FILE,
-                  "r",
-                  encoding="utf-8"
-              ) as f:
+              try:
 
-                  state = json.load(f)
+                  with open(
+                      STATE_FILE,
+                      "r",
+                      encoding="utf-8"
+                  ) as f:
+
+                      state = json.load(f)
+
+              except Exception:
+
+                  print(
+                      "⚠️ No se pudo leer el estado. "
+                      "Se utilizará uno nuevo."
+                  )
+
+                  state = {}
 
           else:
 
               state = {}
 
 
-          sent = set(
-              state.get(PROFILE, [])
+          already_sent = set(
+              state.get(
+                  PROFILE,
+                  []
+              )
           )
 
-          new_ids = []
+
+          print(
+              "========================================"
+          )
+
+          print(
+              "INSTAGRAM MONITOR"
+          )
+
+          print(
+              "========================================"
+          )
+
+          print(
+              f"Perfil: {PROFILE}"
+          )
+
+          print(
+              f"Stories previamente enviadas: "
+              f"{len(already_sent)}"
+          )
+
+
+          # ========================================================
+          # RESULTADOS
+          # ========================================================
+
           downloaded = []
-
-
-          print("======================================")
-          print("INSTAGRAM MONITOR")
-          print("======================================")
-
-          print(
-              "Perfil:",
-              PROFILE
-          )
-
-          print(
-              "Stories ya enviadas:",
-              len(sent)
-          )
 
 
           # ========================================================
@@ -106,16 +158,21 @@ jobs:
               )
 
               context = browser.new_context(
+
                   viewport={
                       "width": 1366,
                       "height": 900
                   },
+
                   user_agent=(
-                      "Mozilla/5.0 (X11; Linux x86_64) "
+                      "Mozilla/5.0 "
+                      "(X11; Linux x86_64) "
                       "AppleWebKit/537.36 "
                       "(KHTML, like Gecko) "
-                      "Chrome/139.0.0.0 Safari/537.36"
+                      "Chrome/139.0.0.0 "
+                      "Safari/537.36"
                   )
+
               )
 
               page = context.new_page()
@@ -125,26 +182,42 @@ jobs:
               # ABRIR SSSINSTAGRAM
               # ====================================================
 
-              print("\nAbriendo SSSInstagram...")
+              print(
+                  "\nAbriendo SSSInstagram..."
+              )
 
               page.goto(
-                  "https://sssinstagram.com/es/story-saver",
+                  SSS_URL,
                   wait_until="domcontentloaded",
                   timeout=60000
               )
 
-              page.wait_for_timeout(3000)
+              page.wait_for_timeout(
+                  3000
+              )
 
 
               # ====================================================
-              # INTRODUCIR PERFIL
+              # INPUT
               # ====================================================
 
-              print("Introduciendo perfil...")
+              print(
+                  "Introduciendo perfil..."
+              )
 
               input_box = page.locator(
-                  "input[type='text'], input[type='url']"
+                  "input[type='text'], "
+                  "input[type='url']"
               ).first
+
+
+              if not input_box.is_visible():
+
+                  raise Exception(
+                      "No se encontró el campo "
+                      "para introducir el perfil."
+                  )
+
 
               input_box.fill(
                   PROFILE_URL
@@ -155,7 +228,9 @@ jobs:
               # BOTÓN DESCARGAR
               # ====================================================
 
-              print("Pulsando Descargar...")
+              print(
+                  "Buscando botón Descargar..."
+              )
 
               download_button = page.get_by_role(
                   "button",
@@ -164,6 +239,7 @@ jobs:
                       re.I
                   )
               ).first
+
 
               if not download_button.is_visible():
 
@@ -182,6 +258,10 @@ jobs:
                   )
 
 
+              print(
+                  "Pulsando Descargar..."
+              )
+
               download_button.click()
 
 
@@ -199,7 +279,7 @@ jobs:
 
 
               # ====================================================
-              # BUSCAR STORIES
+              # INTENTAR ABRIR STORIES
               # ====================================================
 
               print(
@@ -208,12 +288,16 @@ jobs:
 
               story_tab_found = False
 
-              for pattern in [
+
+              patterns = [
                   r"stories",
                   r"story",
                   r"historias",
                   r"historia"
-              ]:
+              ]
+
+
+              for pattern in patterns:
 
                   try:
 
@@ -224,77 +308,94 @@ jobs:
                           )
                       )
 
+
+                      count = elements.count()
+
+
                       for i in range(
-                          min(
-                              elements.count(),
-                              10
-                          )
+                          min(count, 15)
                       ):
 
                           element = elements.nth(i)
 
+
                           try:
 
-                              if element.is_visible():
+                              if not element.is_visible():
+                                  continue
 
-                                  text = (
-                                      element
-                                      .inner_text()
-                                      .strip()
-                                  )
 
-                                  if text:
+                              text = (
+                                  element
+                                  .inner_text()
+                                  .strip()
+                              )
 
-                                      print(
-                                          "Encontrado:",
-                                          repr(text)
-                                      )
 
-                                      element.click(
-                                          timeout=3000
-                                      )
+                              if not text:
+                                  continue
 
-                                      page.wait_for_timeout(
-                                          5000
-                                      )
 
-                                      story_tab_found = True
+                              print(
+                                  "Elemento encontrado:",
+                                  repr(text)
+                              )
 
-                                      break
 
-                          except:
+                              element.click(
+                                  timeout=3000
+                              )
+
+
+                              page.wait_for_timeout(
+                                  5000
+                              )
+
+
+                              story_tab_found = True
+
+                              break
+
+
+                          except Exception:
                               pass
+
 
                       if story_tab_found:
                           break
 
-                  except:
+
+                  except Exception:
                       pass
 
 
               if story_tab_found:
 
                   print(
-                      "Se abrió Stories."
+                      "✅ Se abrió la sección Stories."
                   )
 
               else:
 
                   print(
-                      "No se detectó explícitamente "
+                      "⚠️ No se identificó "
                       "la pestaña Stories."
                   )
 
 
               # ====================================================
-              # BUSCAR URLs DE MEDIA
+              # OBTENER ENLACES
               # ====================================================
 
               print(
-                  "\nBuscando archivos multimedia..."
+                  "\nBuscando URLs multimedia..."
               )
 
-              links = page.locator("a")
+
+              links = page.locator(
+                  "a"
+              )
+
 
               media_urls = []
 
@@ -303,13 +404,16 @@ jobs:
                   links.count()
               ):
 
-                  link = links.nth(i)
-
                   try:
 
-                      href = link.get_attribute(
-                          "href"
+                      href = (
+                          links
+                          .nth(i)
+                          .get_attribute(
+                              "href"
+                          )
                       )
+
 
                       if not href:
                           continue
@@ -328,7 +432,8 @@ jobs:
                               href
                           )
 
-                  except:
+
+                  except Exception:
                       pass
 
 
@@ -338,12 +443,17 @@ jobs:
               )
 
 
+              # ====================================================
+              # SI NO ENCONTRÓ NADA
+              # ====================================================
+
               if not media_urls:
 
                   page.screenshot(
                       path="sssinstagram-debug.png",
                       full_page=True
                   )
+
 
                   with open(
                       "sssinstagram-debug.html",
@@ -355,13 +465,18 @@ jobs:
                           page.content()
                       )
 
+
+                  browser.close()
+
+
                   raise Exception(
-                      "No se encontraron Stories."
+                      "❌ No se encontraron "
+                      "URLs multimedia."
                   )
 
 
               # ====================================================
-              # PROCESAR CADA STORY
+              # PROCESAR CADA MEDIA
               # ====================================================
 
               for index, media_url in enumerate(
@@ -369,7 +484,8 @@ jobs:
               ):
 
                   print(
-                      f"\nProcesando Story {index + 1}..."
+                      f"\nProcesando media "
+                      f"{index + 1}/{len(media_urls)}..."
                   )
 
 
@@ -383,20 +499,24 @@ jobs:
                           media_url
                       )
 
+
                       query = parse_qs(
                           parsed.query
                       )
+
 
                       real_uri = query.get(
                           "uri",
                           [media_url]
                       )[0]
 
+
                       real_uri = unquote(
                           real_uri
                       )
 
-                  except:
+
+                  except Exception:
 
                       real_uri = media_url
 
@@ -409,45 +529,62 @@ jobs:
                       real_uri.encode(
                           "utf-8"
                       )
-                  ).hexdigest()[:20]
+                  ).hexdigest()[:24]
 
 
                   print(
-                      "ID:",
-                      story_id
+                      f"ID: {story_id}"
                   )
 
 
                   # ------------------------------------------------
-                  # YA ENVIADA
+                  # ¿YA FUE ENVIADA?
                   # ------------------------------------------------
 
-                  if story_id in sent:
+                  if story_id in already_sent:
 
                       print(
-                          "Esta Story ya fue enviada."
+                          "⏭️ Ya enviada. "
+                          "Se ignora."
                       )
 
                       continue
 
 
                   # ------------------------------------------------
-                  # DESCARGAR INMEDIATAMENTE
+                  # DESCARGAR URL FRESCA
                   # ------------------------------------------------
 
                   print(
-                      "Descargando..."
+                      "⬇️ Descargando..."
                   )
 
-                  response = requests.get(
-                      media_url,
-                      stream=True,
-                      timeout=60,
-                      headers={
-                          "User-Agent":
-                          "Mozilla/5.0"
-                      }
-                  )
+
+                  try:
+
+                      response = requests.get(
+
+                          media_url,
+
+                          stream=True,
+
+                          timeout=60,
+
+                          headers={
+                              "User-Agent":
+                              "Mozilla/5.0"
+                          }
+
+                      )
+
+                  except Exception as e:
+
+                      print(
+                          "❌ Error de descarga:",
+                          e
+                      )
+
+                      continue
 
 
                   print(
@@ -459,7 +596,7 @@ jobs:
                   if response.status_code != 200:
 
                       print(
-                          "No se pudo descargar."
+                          "❌ No se pudo descargar."
                       )
 
                       continue
@@ -477,7 +614,7 @@ jobs:
 
 
                   # ------------------------------------------------
-                  # EXTENSIÓN
+                  # DETERMINAR EXTENSIÓN
                   # ------------------------------------------------
 
                   if "video" in content_type:
@@ -498,30 +635,42 @@ jobs:
 
 
                   filename = (
-                      f"downloads/"
+                      f"{DOWNLOAD_DIR}/"
                       f"{story_id}"
                       f"{extension}"
                   )
 
 
                   # ------------------------------------------------
-                  # GUARDAR
+                  # GUARDAR ARCHIVO
                   # ------------------------------------------------
 
-                  with open(
-                      filename,
-                      "wb"
-                  ) as f:
+                  try:
 
-                      for chunk in response.iter_content(
-                          chunk_size=1024 * 1024
-                      ):
+                      with open(
+                          filename,
+                          "wb"
+                      ) as f:
 
-                          if chunk:
+                          for chunk in response.iter_content(
+                              chunk_size=1024 * 1024
+                          ):
 
-                              f.write(
-                                  chunk
-                              )
+                              if chunk:
+
+                                  f.write(
+                                      chunk
+                                  )
+
+
+                  except Exception as e:
+
+                      print(
+                          "❌ Error guardando:",
+                          e
+                      )
+
+                      continue
 
 
                   filesize = os.path.getsize(
@@ -530,14 +679,11 @@ jobs:
 
 
                   print(
-                      "Descargado:",
-                      filename
+                      f"Archivo: {filename}"
                   )
 
                   print(
-                      "Tamaño:",
-                      filesize,
-                      "bytes"
+                      f"Tamaño: {filesize} bytes"
                   )
 
 
@@ -550,42 +696,289 @@ jobs:
                       continue
 
 
-                  downloaded.append(
-                      filename
-                  )
+                  downloaded.append({
 
-                  new_ids.append(
-                      story_id
-                  )
+                      "id": story_id,
+
+                      "filename": filename,
+
+                      "type": (
+                          "video"
+                          if extension == ".mp4"
+                          else "photo"
+                      )
+
+                  })
 
 
               browser.close()
 
 
           # ========================================================
-          # GUARDAR NUEVOS IDs
+          # GUARDAR LISTA DE ARCHIVOS
           # ========================================================
 
-          if PROFILE not in state:
+          with open(
+              "files.json",
+              "w",
+              encoding="utf-8"
+          ) as f:
 
-              state[PROFILE] = []
-
-
-          state[PROFILE].extend(
-              new_ids
-          )
-
-
-          # Eliminar duplicados
-          state[PROFILE] = list(
-              dict.fromkeys(
-                  state[PROFILE]
+              json.dump(
+                  downloaded,
+                  f,
+                  indent=2,
+                  ensure_ascii=False
               )
+
+
+          print(
+              "\n========================================"
           )
+
+          print(
+              f"Stories nuevas encontradas: "
+              f"{len(downloaded)}"
+          )
+
+          print(
+              "========================================"
+          )
+
+          PY
+
+
+          python monitor_instagram.py
+
+
+      # ============================================================
+      # 3. ENVIAR STORIES A TELEGRAM
+      # ============================================================
+
+      - name: Enviar Stories a Telegram
+
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+        run: |
+
+          if [ ! -f files.json ]; then
+
+            echo "No existe files.json."
+
+            exit 0
+
+          fi
+
+
+          COUNT=$(python -c "
+          import json
+          with open('files.json') as f:
+              print(len(json.load(f)))
+          ")
+
+
+          echo "Stories para enviar: $COUNT"
+
+
+          if [ "$COUNT" -eq 0 ]; then
+
+            echo "No hay Stories nuevas."
+
+            exit 0
+
+          fi
+
+
+          python - <<'PY'
+
+          import json
+          import os
+          import subprocess
+
+
+          TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+          CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 
           with open(
-              STATE_FILE,
+              "files.json",
+              "r",
+              encoding="utf-8"
+          ) as f:
+
+              files = json.load(f)
+
+
+          successfully_sent = []
+
+
+          for item in files:
+
+              filename = item["filename"]
+              story_id = item["id"]
+              media_type = item["type"]
+
+
+              print(
+                  f"\nEnviando {filename}..."
+              )
+
+
+              if media_type == "video":
+
+                  endpoint = (
+                      f"https://api.telegram.org/"
+                      f"bot{TOKEN}/sendVideo"
+                  )
+
+                  command = [
+
+                      "curl",
+                      "-sS",
+                      "-X",
+                      "POST",
+                      endpoint,
+
+                      "-F",
+                      f"chat_id={CHAT_ID}",
+
+                      "-F",
+                      f"video=@{filename}",
+
+                      "-F",
+                      "caption=📱 Instagram Monitor — "
+                      "zero.design.oficial"
+
+                  ]
+
+              else:
+
+                  endpoint = (
+                      f"https://api.telegram.org/"
+                      f"bot{TOKEN}/sendPhoto"
+                  )
+
+                  command = [
+
+                      "curl",
+                      "-sS",
+                      "-X",
+                      "POST",
+                      endpoint,
+
+                      "-F",
+                      f"chat_id={CHAT_ID}",
+
+                      "-F",
+                      f"photo=@{filename}",
+
+                      "-F",
+                      "caption=📱 Instagram Monitor — "
+                      "zero.design.oficial"
+
+                  ]
+
+
+              result = subprocess.run(
+                  command,
+                  capture_output=True,
+                  text=True
+              )
+
+
+              response = result.stdout
+
+
+              print(
+                  "Respuesta Telegram:",
+                  response
+              )
+
+
+              if '"ok":true' in response:
+
+                  print(
+                      "✅ Enviada correctamente."
+                  )
+
+                  successfully_sent.append(
+                      story_id
+                  )
+
+              else:
+
+                  print(
+                      "❌ Telegram NO confirmó "
+                      "el envío."
+                  )
+
+
+          # ========================================================
+          # GUARDAR IDS EN ARCHIVO
+          # ========================================================
+
+          state_file = "data/instagram-state.json"
+
+
+          if os.path.exists(state_file):
+
+              try:
+
+                  with open(
+                      state_file,
+                      "r",
+                      encoding="utf-8"
+                  ) as f:
+
+                      state = json.load(f)
+
+              except:
+
+                  state = {}
+
+          else:
+
+              state = {}
+
+
+          state.setdefault(
+              "zero.design.oficial",
+              []
+          )
+
+
+          for story_id in successfully_sent:
+
+              if story_id not in state[
+                  "zero.design.oficial"
+              ]:
+
+                  state[
+                      "zero.design.oficial"
+                  ].append(
+                      story_id
+                  )
+
+
+          # ========================================================
+          # LIMITAR ESTADO
+          # ========================================================
+
+          # Conservamos solamente los últimos
+          # 100 IDs para que el archivo no crezca
+          # indefinidamente.
+
+          state[
+              "zero.design.oficial"
+          ] = state[
+              "zero.design.oficial"
+          ][-100:]
+
+
+          with open(
+              state_file,
               "w",
               encoding="utf-8"
           ) as f:
@@ -598,124 +991,38 @@ jobs:
               )
 
 
-          # ========================================================
-          # LISTA DE ARCHIVOS PARA TELEGRAM
-          # ========================================================
-
-          with open(
-              "files.txt",
-              "w",
-              encoding="utf-8"
-          ) as f:
-
-              for filename in downloaded:
-
-                  f.write(
-                      filename + "\n"
-                  )
-
-
           print(
-              "\n======================================"
+              "\nIDs enviados correctamente:"
           )
 
           print(
-              "Stories nuevas:",
-              len(downloaded)
-          )
-
-          print(
-              "======================================"
+              len(successfully_sent)
           )
 
           PY
 
 
-          python monitor_instagram.py
-
-
       # ============================================================
-      # 3. ENVIAR STORIES NUEVAS A TELEGRAM
-      # ============================================================
-
-      - name: Enviar Stories nuevas a Telegram
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-
-          if [ ! -f files.txt ]; then
-
-            echo "No hay archivos."
-
-            exit 0
-
-          fi
-
-
-          while IFS= read -r FILE; do
-
-            [ -z "$FILE" ] && continue
-
-
-            echo "Enviando:"
-            echo "$FILE"
-
-
-            if [[ "$FILE" == *.mp4 ]]; then
-
-              RESPONSE=$(curl -sS \
-                -X POST \
-                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendVideo" \
-                -F "chat_id=${TELEGRAM_CHAT_ID}" \
-                -F "video=@${FILE}" \
-                -F "caption=📱 Instagram Monitor — zero.design.oficial")
-
-            else
-
-              RESPONSE=$(curl -sS \
-                -X POST \
-                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto" \
-                -F "chat_id=${TELEGRAM_CHAT_ID}" \
-                -F "photo=@${FILE}" \
-                -F "caption=📱 Instagram Monitor — zero.design.oficial")
-
-            fi
-
-
-            echo "$RESPONSE"
-
-
-            if ! echo "$RESPONSE" | grep -q '"ok":true'; then
-
-              echo "❌ Error enviando a Telegram."
-
-              exit 1
-
-            fi
-
-
-            echo "✅ Enviado correctamente."
-
-          done < files.txt
-
-
-      # ============================================================
-      # 4. GUARDAR EL ESTADO EN GITHUB
+      # 4. GUARDAR ESTADO EN GITHUB
       # ============================================================
 
       - name: Guardar estado
+
         run: |
 
-          git config user.name "Instagram Monitor"
+          git config user.name \
+            "Instagram Monitor"
 
-          git config user.email "instagram-monitor@users.noreply.github.com"
+          git config user.email \
+            "instagram-monitor@users.noreply.github.com"
+
 
           git add data/instagram-state.json
 
+
           if git diff --cached --quiet; then
 
-            echo "No hubo cambios en el estado."
+            echo "No hay cambios en el estado."
 
           else
 
@@ -731,16 +1038,20 @@ jobs:
       # 5. LIMPIAR ARCHIVOS TEMPORALES
       # ============================================================
 
-      - name: Limpiar
+      - name: Limpiar archivos temporales
+
         if: always()
+
         run: |
 
           rm -rf downloads
 
-          rm -f files.txt
+          rm -f files.json
+
+          rm -f monitor_instagram.py
 
           rm -f sssinstagram-debug.html
 
           rm -f sssinstagram-debug.png
 
-          echo "Archivos temporales eliminados."
+          echo "🧹 Limpieza completada."

@@ -4,37 +4,57 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-download-telegram:
+  test-sssinstagram:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Descargar imagen
+      - name: Instalar herramientas
         run: |
-          curl -L \
-            "https://www.bttbike.com/foto/o/12/65/1265166110_HORQUILLA_ASFALTO_ULTRA_LITE.jpg" \
-            -o historia.jpg
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4
 
-          echo "Imagen descargada:"
-          file historia.jpg
-          ls -lh historia.jpg
+      - name: Consultar SSSInstagram
+        env:
+          INSTAGRAM_URL: "https://www.instagram.com/stories/zero.design.oficial/3976607132233581985/"
+        run: |
+          python <<'PY'
+          import os
+          import requests
 
-      - name: Enviar imagen a Telegram
+          url = "https://sssinstagram.com/es/story-saver"
+
+          instagram_url = os.environ["INSTAGRAM_URL"]
+
+          session = requests.Session()
+
+          session.headers.update({
+              "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+              "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+          })
+
+          print("Abriendo SSSInstagram...")
+
+          response = session.get(url, timeout=30)
+
+          print("HTTP:", response.status_code)
+          print("Tamaño de respuesta:", len(response.text))
+
+          if response.status_code != 200:
+              raise Exception("SSSInstagram no respondió correctamente")
+
+          print("SSSInstagram respondió correctamente.")
+          PY
+
+      - name: Enviar prueba a Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          echo "Enviando imagen a Telegram..."
+          curl -sS -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=✅ GitHub puede acceder a SSSInstagram. Siguiente paso: localizar la petición que obtiene la Story."
 
-          RESPONSE=$(curl -sS -X POST \
-            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto" \
-            -F "chat_id=${TELEGRAM_CHAT_ID}" \
-            -F "photo=@historia.jpg" \
-            -F "caption=📸 Instagram Monitor - imagen descargada correctamente")
-
-          echo "Respuesta de Telegram:"
-          echo "$RESPONSE"
-
-      - name: Eliminar archivo temporal
+      - name: Finalizar
         run: |
-          rm -f historia.jpg
-          echo "Archivo temporal eliminado."
+          echo "Prueba terminada."

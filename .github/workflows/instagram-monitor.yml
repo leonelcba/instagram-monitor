@@ -118,9 +118,9 @@ jobs:
               )
 
 
-          # --------------------------------------------------------
+          # ========================================================
           # LIMPIAR Y VALIDAR NOMBRES
-          # --------------------------------------------------------
+          # ========================================================
 
           clean_accounts = []
 
@@ -249,7 +249,7 @@ jobs:
 
 
           # ========================================================
-          # FUNCIÓN: OBTENER URLS MULTIMEDIA
+          # FUNCIÓN: OBTENER SOLO LINKS REALES DE STORIES
           # ========================================================
 
           def collect_media_urls(page):
@@ -258,11 +258,21 @@ jobs:
 
 
               # ----------------------------------------------------
-              # Buscar en <a href> y <img src>
+              # IMPORTANTE:
+              #
+              # SOLO buscamos <a href>.
+              #
+              # NO buscamos img[src].
+              #
+              # Esto evita:
+              # - miniaturas
+              # - previews
+              # - fotos de perfil
+              # - imágenes decorativas
               # ----------------------------------------------------
 
               elements = page.locator(
-                  "a[href], img[src]"
+                  "a[href]"
               )
 
 
@@ -275,40 +285,40 @@ jobs:
 
                       element = elements.nth(i)
 
+
                       href = element.get_attribute(
                           "href"
                       )
 
-                      src = element.get_attribute(
-                          "src"
-                      )
+
+                      if not href:
+                          continue
 
 
-                      candidates = []
+                      href_lower = href.lower()
 
 
-                      if href:
-                          candidates.append(href)
+                      # ------------------------------------------------
+                      # SOLO URLs multimedia de SSSInstagram
+                      # ------------------------------------------------
+
+                      if (
+                          "media.sssinstagram.com/get"
+                          not in href_lower
+                      ):
+
+                          continue
 
 
-                      if src:
-                          candidates.append(src)
+                      # ------------------------------------------------
+                      # EVITAR DUPLICADOS EXACTOS DE URL
+                      # ------------------------------------------------
 
+                      if href not in urls:
 
-                      for value in candidates:
-
-                          if (
-                              "media.sssinstagram.com/get"
-                              not in value.lower()
-                          ):
-                              continue
-
-
-                          if value not in urls:
-
-                              urls.append(
-                                  value
-                              )
+                          urls.append(
+                              href
+                          )
 
 
                   except Exception:
@@ -745,7 +755,8 @@ jobs:
                       # =================================================
 
                       print(
-                          "\nBuscando URLs multimedia..."
+                          "\nBuscando enlaces multimedia "
+                          "de Stories..."
                       )
 
 
@@ -755,7 +766,7 @@ jobs:
 
 
                       print(
-                          "URLs multimedia encontradas inicialmente:",
+                          "Enlaces de Stories encontrados inicialmente:",
                           len(media_urls)
                       )
 
@@ -819,7 +830,7 @@ jobs:
                               f"{round_number}/14: "
                               f"contenedores desplazados "
                               f"{moved}, "
-                              f"URLs nuevas "
+                              f"enlaces nuevos "
                               f"{new_urls}, "
                               f"total "
                               f"{len(media_urls)}"
@@ -867,7 +878,7 @@ jobs:
 
 
                       print(
-                          "\nURLs multimedia encontradas:",
+                          "\nEnlaces de Stories encontrados:",
                           len(media_urls)
                       )
 
@@ -897,7 +908,7 @@ jobs:
                       ):
 
                           print(
-                              f"\nProcesando media "
+                              f"\nProcesando Story "
                               f"{media_index + 1}/"
                               f"{len(media_urls)}..."
                           )

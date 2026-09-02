@@ -6,6 +6,8 @@ on:
   schedule:
     - cron: '0 * * * *'
 
+permissions:
+  contents: write
 
 jobs:
 
@@ -16,7 +18,15 @@ jobs:
     steps:
 
       # ============================================================
-      # 1. INSTALAR PYTHON + PLAYWRIGHT
+      # 1. DESCARGAR EL REPOSITORIO
+      # ============================================================
+
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+
+      # ============================================================
+      # 2. INSTALAR PYTHON + PLAYWRIGHT
       # ============================================================
 
       - name: Instalar dependencias
@@ -27,7 +37,7 @@ jobs:
 
 
       # ============================================================
-      # 2. OBTENER STORIES
+      # 3. BUSCAR STORIES
       # ============================================================
 
       - name: Buscar Stories de Instagram
@@ -99,8 +109,7 @@ jobs:
               except Exception:
 
                   print(
-                      "⚠️ No se pudo leer el estado. "
-                      "Se utilizará uno nuevo."
+                      "⚠️ No se pudo leer el estado."
                   )
 
                   state = {}
@@ -198,7 +207,7 @@ jobs:
 
 
               # ====================================================
-              # INPUT
+              # INTRODUCIR PERFIL
               # ====================================================
 
               print(
@@ -384,7 +393,7 @@ jobs:
 
 
               # ====================================================
-              # OBTENER ENLACES
+              # OBTENER ENLACES MULTIMEDIA
               # ====================================================
 
               print(
@@ -476,7 +485,7 @@ jobs:
 
 
               # ====================================================
-              # PROCESAR CADA MEDIA
+              # PROCESAR CADA STORY
               # ====================================================
 
               for index, media_url in enumerate(
@@ -552,7 +561,7 @@ jobs:
 
 
                   # ------------------------------------------------
-                  # DESCARGAR URL FRESCA
+                  # DESCARGAR
                   # ------------------------------------------------
 
                   print(
@@ -614,7 +623,7 @@ jobs:
 
 
                   # ------------------------------------------------
-                  # DETERMINAR EXTENSIÓN
+                  # EXTENSIÓN
                   # ------------------------------------------------
 
                   if "video" in content_type:
@@ -642,7 +651,7 @@ jobs:
 
 
                   # ------------------------------------------------
-                  # GUARDAR ARCHIVO
+                  # GUARDAR
                   # ------------------------------------------------
 
                   try:
@@ -662,7 +671,6 @@ jobs:
                                       chunk
                                   )
 
-
                   except Exception as e:
 
                       print(
@@ -679,11 +687,14 @@ jobs:
 
 
                   print(
-                      f"Archivo: {filename}"
+                      "Archivo:",
+                      filename
                   )
 
                   print(
-                      f"Tamaño: {filesize} bytes"
+                      "Tamaño:",
+                      filesize,
+                      "bytes"
                   )
 
 
@@ -752,7 +763,7 @@ jobs:
 
 
       # ============================================================
-      # 3. ENVIAR STORIES A TELEGRAM
+      # 4. ENVIAR STORIES A TELEGRAM
       # ============================================================
 
       - name: Enviar Stories a Telegram
@@ -798,8 +809,13 @@ jobs:
           import subprocess
 
 
-          TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-          CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+          TOKEN = os.environ[
+              "TELEGRAM_BOT_TOKEN"
+          ]
+
+          CHAT_ID = os.environ[
+              "TELEGRAM_CHAT_ID"
+          ]
 
 
           with open(
@@ -816,9 +832,17 @@ jobs:
 
           for item in files:
 
-              filename = item["filename"]
-              story_id = item["id"]
-              media_type = item["type"]
+              filename = item[
+                  "filename"
+              ]
+
+              story_id = item[
+                  "id"
+              ]
+
+              media_type = item[
+                  "type"
+              ]
 
 
               print(
@@ -826,12 +850,17 @@ jobs:
               )
 
 
+              # ====================================================
+              # VIDEO
+              # ====================================================
+
               if media_type == "video":
 
                   endpoint = (
-                      f"https://api.telegram.org/"
+                      "https://api.telegram.org/"
                       f"bot{TOKEN}/sendVideo"
                   )
+
 
                   command = [
 
@@ -839,6 +868,7 @@ jobs:
                       "-sS",
                       "-X",
                       "POST",
+
                       endpoint,
 
                       "-F",
@@ -853,12 +883,18 @@ jobs:
 
                   ]
 
+
+              # ====================================================
+              # IMAGEN
+              # ====================================================
+
               else:
 
                   endpoint = (
-                      f"https://api.telegram.org/"
+                      "https://api.telegram.org/"
                       f"bot{TOKEN}/sendPhoto"
                   )
+
 
                   command = [
 
@@ -866,6 +902,7 @@ jobs:
                       "-sS",
                       "-X",
                       "POST",
+
                       endpoint,
 
                       "-F",
@@ -881,10 +918,18 @@ jobs:
                   ]
 
 
+              # ====================================================
+              # ENVIAR
+              # ====================================================
+
               result = subprocess.run(
+
                   command,
+
                   capture_output=True,
+
                   text=True
+
               )
 
 
@@ -892,10 +937,17 @@ jobs:
 
 
               print(
-                  "Respuesta Telegram:",
+                  "Respuesta Telegram:"
+              )
+
+              print(
                   response
               )
 
+
+              # ====================================================
+              # COMPROBAR RESPUESTA
+              # ====================================================
 
               if '"ok":true' in response:
 
@@ -916,13 +968,17 @@ jobs:
 
 
           # ========================================================
-          # GUARDAR IDS EN ARCHIVO
+          # CARGAR ESTADO ACTUAL
           # ========================================================
 
-          state_file = "data/instagram-state.json"
+          state_file = (
+              "data/instagram-state.json"
+          )
 
 
-          if os.path.exists(state_file):
+          if os.path.exists(
+              state_file
+          ):
 
               try:
 
@@ -949,6 +1005,10 @@ jobs:
           )
 
 
+          # ========================================================
+          # AGREGAR SOLO LAS ENVIADAS
+          # ========================================================
+
           for story_id in successfully_sent:
 
               if story_id not in state[
@@ -963,12 +1023,8 @@ jobs:
 
 
           # ========================================================
-          # LIMITAR ESTADO
+          # CONSERVAR ÚLTIMOS 100
           # ========================================================
-
-          # Conservamos solamente los últimos
-          # 100 IDs para que el archivo no crezca
-          # indefinidamente.
 
           state[
               "zero.design.oficial"
@@ -976,6 +1032,10 @@ jobs:
               "zero.design.oficial"
           ][-100:]
 
+
+          # ========================================================
+          # GUARDAR ESTADO
+          # ========================================================
 
           with open(
               state_file,
@@ -992,21 +1052,26 @@ jobs:
 
 
           print(
-              "\nIDs enviados correctamente:"
+              "\n================================"
           )
 
           print(
+              "Stories enviadas correctamente:",
               len(successfully_sent)
+          )
+
+          print(
+              "================================"
           )
 
           PY
 
 
       # ============================================================
-      # 4. GUARDAR ESTADO EN GITHUB
+      # 5. GUARDAR ESTADO EN GITHUB
       # ============================================================
 
-      - name: Guardar estado
+      - name: Guardar estado en GitHub
 
         run: |
 
@@ -1035,7 +1100,7 @@ jobs:
 
 
       # ============================================================
-      # 5. LIMPIAR ARCHIVOS TEMPORALES
+      # 6. LIMPIAR ARCHIVOS TEMPORALES
       # ============================================================
 
       - name: Limpiar archivos temporales

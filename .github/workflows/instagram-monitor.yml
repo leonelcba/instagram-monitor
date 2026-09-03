@@ -1,4 +1,4 @@
-name: Diagnóstico Snapgram Stories
+name: DIAGNOSTICO Instagram Stories
 
 on:
   workflow_dispatch:
@@ -11,556 +11,1464 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Instalar Python y Playwright
+      - name: Instalar Playwright
         run: |
           python -m pip install --upgrade pip
           pip install playwright
           playwright install chromium
-          playwright install-deps chromium
 
-      - name: Ejecutar diagnóstico Snapgram
+      - name: Ejecutar diagnóstico
         shell: python
         run: |
           import time
-          from pathlib import Path
-
           from playwright.sync_api import sync_playwright
 
+          SSS_URL = "https://sssinstagram.com/es/story-saver"
           ACCOUNT = "laderechadiario"
-          SNAPGRAM_URL = "https://www.snapgram.io/instagram-story-downloader/"
-          PROFILE_URL = f"https://www.instagram.com/{ACCOUNT}/"
 
-          print("=" * 70)
-          print("DIAGNÓSTICO SNAPGRAM - INSTAGRAM STORIES")
-          print("=" * 70)
-          print(f"Cuenta: @{ACCOUNT}")
-          print(f"Página: {SNAPGRAM_URL}")
-          print(f"Perfil: {PROFILE_URL}")
-          print("=" * 70)
+          print("")
+          print("=" * 80)
+          print("DIAGNÓSTICO COMPLETO DE SSSINSTAGRAM")
+          print("=" * 80)
+          print(f"Cuenta analizada: @{ACCOUNT}")
+          print("=" * 80)
+
+          # ==========================================================
+          # FUNCIÓN: INSPECCIÓN GENERAL
+          # ==========================================================
+
+          def inspect_page(page, nombre):
+
+              print("")
+              print("")
+              print("=" * 80)
+              print(f"INSPECCIÓN: {nombre}")
+              print("=" * 80)
+
+              print("")
+              print(f"URL: {page.url}")
+
+              try:
+                  print(f"TÍTULO: {page.title()}")
+              except Exception:
+                  pass
+
+              # ------------------------------------------------------
+              # TEXTO VISIBLE
+              # ------------------------------------------------------
+
+              print("")
+              print("-" * 80)
+              print("TEXTO VISIBLE")
+              print("-" * 80)
+
+              try:
+                  text = page.locator("body").inner_text(
+                      timeout=10000
+                  )
+
+                  lines = [
+                      line.strip()
+                      for line in text.splitlines()
+                      if line.strip()
+                  ]
+
+                  print(
+                      f"Total de líneas visibles: {len(lines)}"
+                  )
+
+                  for line in lines[:250]:
+                      print(line)
+
+              except Exception as e:
+                  print(
+                      f"Error leyendo texto: {e}"
+                  )
+
+              # ------------------------------------------------------
+              # CANTIDAD DE ELEMENTOS
+              # ------------------------------------------------------
+
+              print("")
+              print("-" * 80)
+              print("CANTIDAD DE ELEMENTOS")
+              print("-" * 80)
+
+              selectors = [
+                  ("img", "img"),
+                  ("video", "video"),
+                  ("source", "source"),
+                  ("a", "a"),
+                  ("button", "button"),
+                  ("picture", "picture"),
+                  ("iframe", "iframe"),
+
+                  (
+                      "enlaces media",
+                      'a[href*="media.sssinstagram.com/get"]'
+                  ),
+
+                  (
+                      "imagenes media",
+                      'img[src*="media.sssinstagram.com/get"]'
+                  ),
+
+                  (
+                      "videos media",
+                      'video[src*="media.sssinstagram.com/get"]'
+                  ),
+
+                  (
+                      "sources media",
+                      'source[src*="media.sssinstagram.com/get"]'
+                  )
+              ]
+
+              for nombre_selector, selector in selectors:
+
+                  try:
+                      count = page.locator(
+                          selector
+                      ).count()
+
+                      print(
+                          f"{nombre_selector}: {count}"
+                      )
+
+                  except Exception as e:
+                      print(
+                          f"{nombre_selector}: ERROR {e}"
+                      )
+
+              # ------------------------------------------------------
+              # TODAS LAS IMÁGENES
+              # ------------------------------------------------------
+
+              print("")
+              print("-" * 80)
+              print("TODAS LAS IMÁGENES")
+              print("-" * 80)
+
+              try:
+
+                  images = page.locator("img")
+                  count = images.count()
+
+                  print(
+                      f"Cantidad total de IMG: {count}"
+                  )
+
+                  for i in range(
+                      min(count, 150)
+                  ):
+
+                      img = images.nth(i)
+
+                      try:
+
+                          src = (
+                              img.get_attribute("src")
+                              or ""
+                          )
+
+                          alt = (
+                              img.get_attribute("alt")
+                              or ""
+                          )
+
+                          cls = (
+                              img.get_attribute("class")
+                              or ""
+                          )
+
+                          width = (
+                              img.get_attribute("width")
+                              or ""
+                          )
+
+                          height = (
+                              img.get_attribute("height")
+                              or ""
+                          )
+
+                          print("")
+                          print(
+                              f"IMG #{i}"
+                          )
+
+                          print(
+                              f"  class: {cls!r}"
+                          )
+
+                          print(
+                              f"  alt: {alt!r}"
+                          )
+
+                          print(
+                              f"  width: {width!r}"
+                          )
+
+                          print(
+                              f"  height: {height!r}"
+                          )
+
+                          print(
+                              f"  src: {src[:1000]}"
+                          )
+
+                      except Exception:
+                          pass
+
+              except Exception as e:
+
+                  print(
+                      f"Error inspeccionando IMG: {e}"
+                  )
+
+              # ------------------------------------------------------
+              # TODOS LOS VIDEOS
+              # ------------------------------------------------------
+
+              print("")
+              print("-" * 80)
+              print("TODOS LOS VIDEOS")
+              print("-" * 80)
+
+              try:
+
+                  videos = page.locator("video")
+                  count = videos.count()
+
+                  print(
+                      f"Cantidad total de VIDEO: {count}"
+                  )
+
+                  for i in range(
+                      min(count, 100)
+                  ):
+
+                      video = videos.nth(i)
+
+                      try:
+
+                          src = (
+                              video.get_attribute("src")
+                              or ""
+                          )
+
+                          cls = (
+                              video.get_attribute("class")
+                              or ""
+                          )
+
+                          poster = (
+                              video.get_attribute("poster")
+                              or ""
+                          )
+
+                          print("")
+                          print(
+                              f"VIDEO #{i}"
+                          )
+
+                          print(
+                              f"  class: {cls!r}"
+                          )
+
+                          print(
+                              f"  poster: {poster[:700]}"
+                          )
+
+                          print(
+                              f"  src: {src[:1000]}"
+                          )
+
+                          sources = video.locator(
+                              "source"
+                          )
+
+                          source_count = sources.count()
+
+                          print(
+                              f"  sources: {source_count}"
+                          )
+
+                          for j in range(
+                              source_count
+                          ):
+
+                              source = sources.nth(j)
+
+                              source_src = (
+                                  source.get_attribute(
+                                      "src"
+                                  )
+                                  or ""
+                              )
+
+                              source_type = (
+                                  source.get_attribute(
+                                      "type"
+                                  )
+                                  or ""
+                              )
+
+                              print(
+                                  f"    SOURCE #{j}: "
+                                  f"type={source_type!r}"
+                              )
+
+                              print(
+                                  f"      src="
+                                  f"{source_src[:1000]}"
+                              )
+
+                      except Exception:
+                          pass
+
+              except Exception as e:
+
+                  print(
+                      f"Error inspeccionando VIDEO: {e}"
+                  )
+
+              # ------------------------------------------------------
+              # TODOS LOS ENLACES RELEVANTES
+              # ------------------------------------------------------
+
+              print("")
+              print("-" * 80)
+              print("ENLACES RELEVANTES")
+              print("-" * 80)
+
+              try:
+
+                  links = page.locator("a")
+                  count = links.count()
+
+                  encontrados = 0
+
+                  print(
+                      f"Cantidad total de A: {count}"
+                  )
+
+                  for i in range(count):
+
+                      link = links.nth(i)
+
+                      try:
+
+                          href = (
+                              link.get_attribute("href")
+                              or ""
+                          )
+
+                          cls = (
+                              link.get_attribute("class")
+                              or ""
+                          )
+
+                          text = (
+                              link.inner_text()
+                              .strip()
+                          )
+
+                          href_lower = href.lower()
+                          cls_lower = cls.lower()
+                          text_lower = text.lower()
+
+                          relevante = (
+                              "media.sssinstagram.com"
+                              in href_lower
+                              or "download"
+                              in href_lower
+                              or "download"
+                              in cls_lower
+                              or "descargar"
+                              in text_lower
+                              or "story"
+                              in cls_lower
+                          )
+
+                          if not relevante:
+                              continue
+
+                          encontrados += 1
+
+                          print("")
+                          print(
+                              f"A #{i}"
+                          )
+
+                          print(
+                              f"  text: {text[:500]!r}"
+                          )
+
+                          print(
+                              f"  class: {cls!r}"
+                          )
+
+                          print(
+                              f"  href: {href[:1200]}"
+                          )
+
+                          if encontrados >= 150:
+                              break
+
+                      except Exception:
+                          pass
+
+                  print("")
+                  print(
+                      f"Enlaces relevantes: "
+                      f"{encontrados}"
+                  )
+
+              except Exception as e:
+
+                  print(
+                      f"Error inspeccionando enlaces: {e}"
+                  )
+
+              # ------------------------------------------------------
+              # CUALQUIER ATRIBUTO QUE CONTENGA
+              # MEDIA.SSSINSTAGRAM.COM
+              # ------------------------------------------------------
+
+              print("")
+              print("-" * 80)
+              print(
+                  "TODAS LAS REFERENCIAS A "
+                  "media.sssinstagram.com"
+              )
+              print("-" * 80)
+
+              try:
+
+                  references = page.evaluate(
+                      """
+                      () => {
+
+                          const result = [];
+
+                          const elements =
+                              document.querySelectorAll("*");
+
+                          for (const el of elements) {
+
+                              for (
+                                  const attr of
+                                  Array.from(
+                                      el.attributes || []
+                                  )
+                              ) {
+
+                                  const value =
+                                      attr.value || "";
+
+                                  if (
+                                      value.includes(
+                                          "media.sssinstagram.com"
+                                      )
+                                  ) {
+
+                                      result.push({
+
+                                          tag:
+                                              el.tagName,
+
+                                          className:
+                                              typeof el.className
+                                              === "string"
+                                                  ? el.className
+                                                  : "",
+
+                                          id:
+                                              el.id || "",
+
+                                          attribute:
+                                              attr.name,
+
+                                          value:
+                                              value
+
+                                      });
+
+                                  }
+
+                              }
+
+                          }
+
+                          return result;
+                      }
+                      """
+                  )
+
+                  print(
+                      f"Referencias encontradas: "
+                      f"{len(references)}"
+                  )
+
+                  for i, item in enumerate(
+                      references[:200]
+                  ):
+
+                      print("")
+                      print(
+                          f"REFERENCIA #{i}"
+                      )
+
+                      print(
+                          f"  tag: "
+                          f"{item['tag']}"
+                      )
+
+                      print(
+                          f"  class: "
+                          f"{item['className']!r}"
+                      )
+
+                      print(
+                          f"  id: "
+                          f"{item['id']!r}"
+                      )
+
+                      print(
+                          f"  atributo: "
+                          f"{item['attribute']}"
+                      )
+
+                      print(
+                          f"  valor: "
+                          f"{item['value'][:1500]}"
+                      )
+
+              except Exception as e:
+
+                  print(
+                      "Error buscando referencias "
+                      f"media: {e}"
+                  )
+
+              # ------------------------------------------------------
+              # ELEMENTOS CON TEXTO STORIES
+              # ------------------------------------------------------
+
+              print("")
+              print("-" * 80)
+              print(
+                  "ELEMENTOS RELACIONADOS CON 'STORIES'"
+              )
+              print("-" * 80)
+
+              try:
+
+                  all_elements = page.locator(
+                      "*"
+                  )
+
+                  count = all_elements.count()
+
+                  encontrados = 0
+
+                  for i in range(count):
+
+                      if encontrados >= 100:
+                          break
+
+                      element = all_elements.nth(i)
+
+                      try:
+
+                          text = (
+                              element.inner_text()
+                              .strip()
+                          )
+
+                          if not text:
+                              continue
+
+                          if (
+                              "stories"
+                              not in text.lower()
+                              and "story"
+                              not in text.lower()
+                          ):
+                              continue
+
+                          # Evitar imprimir elementos
+                          # gigantes que contienen toda
+                          # la página.
+
+                          if len(text) > 1000:
+                              continue
+
+                          tag = element.evaluate(
+                              "(e) => e.tagName"
+                          )
+
+                          cls = (
+                              element.get_attribute(
+                                  "class"
+                              )
+                              or ""
+                          )
+
+                          print("")
+                          print(
+                              f"ELEMENTO #{i}"
+                          )
+
+                          print(
+                              f"  tag: {tag}"
+                          )
+
+                          print(
+                              f"  class: {cls!r}"
+                          )
+
+                          print(
+                              f"  text: {text[:1000]!r}"
+                          )
+
+                          encontrados += 1
+
+                      except Exception:
+                          pass
+
+                  print("")
+                  print(
+                      f"Elementos encontrados: "
+                      f"{encontrados}"
+                  )
+
+              except Exception as e:
+
+                  print(
+                      "Error buscando Stories: "
+                      f"{e}"
+                  )
+
+          # ==========================================================
+          # BUSCAR CONTENEDORES CON SCROLL
+          # ==========================================================
+
+          def inspect_scrollables(page):
+
+              print("")
+              print("-" * 80)
+              print(
+                  "CONTENEDORES CON SCROLL INTERNO"
+              )
+              print("-" * 80)
+
+              try:
+
+                  result = page.evaluate(
+                      """
+                      () => {
+
+                          const elements = [
+                              document.documentElement,
+                              document.body,
+                              ...document.querySelectorAll("*")
+                          ];
+
+                          const result = [];
+
+                          for (
+                              let i = 0;
+                              i < elements.length;
+                              i++
+                          ) {
+
+                              const el = elements[i];
+
+                              try {
+
+                                  const style =
+                                      getComputedStyle(el);
+
+                                  const scrollable =
+                                      el.scrollHeight >
+                                      el.clientHeight + 100;
+
+                                  const overflow =
+                                      style.overflowY === "auto" ||
+                                      style.overflowY === "scroll" ||
+                                      style.overflow === "auto" ||
+                                      style.overflow === "scroll";
+
+                                  if (
+                                      scrollable &&
+                                      overflow
+                                  ) {
+
+                                      result.push({
+
+                                          index: i,
+
+                                          tag:
+                                              el.tagName,
+
+                                          id:
+                                              el.id || "",
+
+                                          className:
+                                              typeof el.className
+                                              === "string"
+                                                  ? el.className
+                                                  : "",
+
+                                          scrollTop:
+                                              el.scrollTop,
+
+                                          scrollHeight:
+                                              el.scrollHeight,
+
+                                          clientHeight:
+                                              el.clientHeight
+
+                                      });
+
+                                  }
+
+                              } catch (e) {}
+
+                          }
+
+                          return result;
+                      }
+                      """
+                  )
+
+                  print(
+                      f"Contenedores encontrados: "
+                      f"{len(result)}"
+                  )
+
+                  for i, item in enumerate(
+                      result[:50]
+                  ):
+
+                      print(
+                          f"[{i}] "
+                          f"<{item['tag'].lower()}> "
+                          f"id={item['id']!r} "
+                          f"class="
+                          f"{item['className']!r} "
+                          f"scrollTop="
+                          f"{item['scrollTop']} "
+                          f"scrollHeight="
+                          f"{item['scrollHeight']} "
+                          f"clientHeight="
+                          f"{item['clientHeight']}"
+                      )
+
+                  return result
+
+              except Exception as e:
+
+                  print(
+                      f"Error detectando scroll: {e}"
+                  )
+
+                  return []
+
+          # ==========================================================
+          # HACER SCROLL INTERNO
+          # ==========================================================
+
+          def scroll_everything(page):
+
+              print("")
+              print("")
+              print("=" * 80)
+              print(
+                  "INICIANDO SCROLL INTERNO"
+              )
+              print("=" * 80)
+
+              previous_media = 0
+              stable_rounds = 0
+
+              for ronda in range(1, 21):
+
+                  print("")
+                  print(
+                      f"SCROLL {ronda}/20"
+                  )
+
+                  containers = inspect_scrollables(
+                      page
+                  )
+
+                  moved = page.evaluate(
+                      """
+                      () => {
+
+                          const elements = [
+                              document.documentElement,
+                              document.body,
+                              ...document.querySelectorAll("*")
+                          ];
+
+                          let moved = 0;
+
+                          for (
+                              const el of elements
+                          ) {
+
+                              try {
+
+                                  const style =
+                                      getComputedStyle(el);
+
+                                  const scrollable =
+                                      el.scrollHeight >
+                                      el.clientHeight + 100;
+
+                                  const overflow =
+                                      style.overflowY === "auto" ||
+                                      style.overflowY === "scroll" ||
+                                      style.overflow === "auto" ||
+                                      style.overflow === "scroll";
+
+                                  if (
+                                      !scrollable ||
+                                      !overflow
+                                  ) {
+                                      continue;
+                                  }
+
+                                  const oldTop =
+                                      el.scrollTop;
+
+                                  const amount =
+                                      Math.max(
+                                          500,
+                                          Math.floor(
+                                              el.clientHeight
+                                              * 0.80
+                                          )
+                                      );
+
+                                  const target =
+                                      Math.min(
+                                          oldTop + amount,
+                                          el.scrollHeight
+                                      );
+
+                                  el.scrollTop =
+                                      target;
+
+                                  if (
+                                      el.scrollTop !==
+                                      oldTop
+                                  ) {
+                                      moved++;
+                                  }
+
+                              } catch (e) {}
+
+                          }
+
+                          return moved;
+                      }
+                      """
+                  )
+
+                  print(
+                      f"Elementos desplazados: {moved}"
+                  )
+
+                  # También desplazamos la página
+                  # por si las Stories están en el
+                  # scroll principal.
+
+                  try:
+                      page.mouse.wheel(
+                          0,
+                          800
+                      )
+                  except Exception:
+                      pass
+
+                  time.sleep(2)
+
+                  # --------------------------------------------------
+                  # CONTAR MEDIA ACTUAL
+                  # --------------------------------------------------
+
+                  try:
+
+                      media_count = page.evaluate(
+                          """
+                          () => {
+
+                              const urls =
+                                  new Set();
+
+                              const elements =
+                                  document.querySelectorAll("*");
+
+                              for (
+                                  const el of elements
+                              ) {
+
+                                  for (
+                                      const attr of
+                                      Array.from(
+                                          el.attributes || []
+                                      )
+                                  ) {
+
+                                      const value =
+                                          attr.value || "";
+
+                                      if (
+                                          value.includes(
+                                              "media.sssinstagram.com/get"
+                                          )
+                                      ) {
+
+                                          urls.add(
+                                              value
+                                          );
+
+                                      }
+
+                                  }
+
+                              }
+
+                              return urls.size;
+                          }
+                          """
+                      )
+
+                      print(
+                          "URLs media únicas "
+                          "actuales: "
+                          f"{media_count}"
+                      )
+
+                  except Exception:
+                      media_count = 0
+
+                  if (
+                      media_count == previous_media
+                  ):
+                      stable_rounds += 1
+                  else:
+                      stable_rounds = 0
+
+                  previous_media = media_count
+
+                  if (
+                      moved == 0
+                      and stable_rounds >= 2
+                  ):
+
+                      print(
+                          "No aparecen más "
+                          "elementos nuevos."
+                      )
+
+                      break
+
+              print("")
+              print(
+                  "Scroll interno terminado."
+              )
+
+          # ==========================================================
+          # PLAYWRIGHT
+          # ==========================================================
 
           with sync_playwright() as p:
+
+              print("")
+              print("=" * 80)
+              print(
+                  "INICIANDO CHROMIUM"
+              )
+              print("=" * 80)
 
               browser = p.chromium.launch(
                   headless=True,
                   args=[
-                      "--disable-blink-features=AutomationControlled",
-                      "--no-sandbox",
-                      "--disable-dev-shm-usage"
+                      "--disable-blink-features="
+                      "AutomationControlled"
                   ]
               )
 
               context = browser.new_context(
                   viewport={
-                      "width": 1365,
+                      "width": 1440,
                       "height": 1000
                   },
-                  user_agent=(
-                      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/131.0.0.0 Safari/537.36"
-                  )
+                  locale="es-ES"
               )
 
               page = context.new_page()
 
-              print()
-              print("=" * 70)
-              print("1. ABRIENDO SNAPGRAM")
-              print("=" * 70)
+              # ======================================================
+              # ABRIR SSSINSTAGRAM
+              # ======================================================
+
+              print("")
+              print(
+                  "Abriendo SSSInstagram..."
+              )
 
               page.goto(
-                  SNAPGRAM_URL,
+                  SSS_URL,
                   wait_until="domcontentloaded",
                   timeout=60000
               )
 
-              time.sleep(3)
+              time.sleep(5)
 
-              print(f"URL actual: {page.url}")
-              print(f"Título: {page.title()}")
+              inspect_page(
+                  page,
+                  "PÁGINA INICIAL"
+              )
 
-              print()
-              print("=" * 70)
-              print("2. BUSCANDO INPUT")
-              print("=" * 70)
+              # ======================================================
+              # INPUT
+              # ======================================================
 
-              inputs = page.locator("input")
+              print("")
+              print("=" * 80)
+              print(
+                  "BUSCANDO INPUT"
+              )
+              print("=" * 80)
 
-              print(f"Inputs encontrados: {inputs.count()}")
+              inputs = page.locator(
+                  "input"
+              )
 
-              for i in range(inputs.count()):
+              print(
+                  f"Inputs encontrados: "
+                  f"{inputs.count()}"
+              )
+
+              for i in range(
+                  inputs.count()
+              ):
+
                   try:
-                      element = inputs.nth(i)
+
+                      inp = inputs.nth(i)
 
                       print(
-                          f"INPUT #{i} | "
-                          f"type={element.get_attribute('type')} | "
-                          f"name={element.get_attribute('name')} | "
-                          f"placeholder={element.get_attribute('placeholder')} | "
-                          f"value={element.input_value()}"
+                          f"INPUT #{i}: "
+                          f"type="
+                          f"{inp.get_attribute('type')!r} "
+                          f"placeholder="
+                          f"{inp.get_attribute('placeholder')!r} "
+                          f"name="
+                          f"{inp.get_attribute('name')!r}"
                       )
-                  except Exception as e:
-                      print(f"INPUT #{i}: error: {e}")
+
+                  except Exception:
+                      pass
 
               if inputs.count() == 0:
-                  print("❌ No se encontró ningún input.")
-                  page.screenshot(
-                      path="snapgram-debug.png",
-                      full_page=True
-                  )
-                  page.content()
-                  Path("snapgram-debug.html").write_text(
-                      page.content(),
-                      encoding="utf-8"
-                  )
-                  browser.close()
-                  raise SystemExit(1)
-
-              target_input = None
-
-              for i in range(inputs.count()):
-                  try:
-                      element = inputs.nth(i)
-
-                      input_type = (
-                          element.get_attribute("type") or ""
-                      ).lower()
-
-                      placeholder = (
-                          element.get_attribute("placeholder") or ""
-                      ).lower()
-
-                      if input_type in ["text", "url", "search", ""]:
-                          if (
-                              "link" in placeholder
-                              or "username" in placeholder
-                              or "url" in placeholder
-                              or "paste" in placeholder
-                              or "nombre" in placeholder
-                              or "usuario" in placeholder
-                              or "enlace" in placeholder
-                          ):
-                              target_input = element
-                              break
-
-                  except Exception:
-                      pass
-
-              if target_input is None:
-                  target_input = inputs.first
-
-              print()
-              print("Input seleccionado:")
-              print(
-                  f"placeholder="
-                  f"{target_input.get_attribute('placeholder')}"
-              )
-
-              print()
-              print("=" * 70)
-              print("3. INTRODUCIENDO PERFIL")
-              print("=" * 70)
-
-              target_input.fill(PROFILE_URL)
-
-              print(f"Valor introducido: {PROFILE_URL}")
-
-              time.sleep(1)
-
-              print()
-              print("=" * 70)
-              print("4. BOTONES")
-              print("=" * 70)
-
-              buttons = page.locator(
-                  "button, input[type='submit'], "
-                  "a[role='button']"
-              )
-
-              print(f"Botones encontrados: {buttons.count()}")
-
-              for i in range(buttons.count()):
-                  try:
-                      element = buttons.nth(i)
-
-                      print(
-                          f"BOTÓN #{i} | "
-                          f"text={element.inner_text().strip()[:100]!r} | "
-                          f"type={element.get_attribute('type')} | "
-                          f"aria={element.get_attribute('aria-label')}"
-                      )
-                  except Exception:
-                      pass
-
-              print()
-              print("=" * 70)
-              print("5. BUSCANDO BOTÓN DOWNLOAD")
-              print("=" * 70)
-
-              download_button = None
-
-              candidates = [
-                  page.get_by_text("Download", exact=True),
-                  page.get_by_text("Descargar", exact=True),
-                  page.locator("button[type='submit']"),
-                  page.locator("input[type='submit']")
-              ]
-
-              for candidate in candidates:
-                  try:
-                      if candidate.count() > 0:
-                          download_button = candidate.first
-                          print("✅ Botón encontrado.")
-                          break
-                  except Exception:
-                      pass
-
-              if download_button is None:
-                  print("❌ No se encontró botón Download/Descargar.")
-
-                  page.screenshot(
-                      path="snapgram-debug.png",
-                      full_page=True
-                  )
-
-                  Path("snapgram-debug.html").write_text(
-                      page.content(),
-                      encoding="utf-8"
-                  )
-
-                  browser.close()
-                  raise SystemExit(1)
-
-              print(
-                  f"Texto del botón: "
-                  f"{download_button.inner_text().strip()!r}"
-              )
-
-              print()
-              print("=" * 70)
-              print("6. HACIENDO CLIC")
-              print("=" * 70)
-
-              try:
-                  download_button.click()
-                  print("✅ Clic realizado.")
-              except Exception as e:
-                  print(f"⚠️ Error al hacer clic: {e}")
-
-              print()
-              print("=" * 70)
-              print("7. ESPERANDO RESULTADOS")
-              print("=" * 70)
-
-              for i in range(15):
-                  time.sleep(2)
 
                   print(
-                      f"Espera {i + 1}/15 | "
-                      f"URL={page.url}"
+                      "❌ No se encontró input."
                   )
 
+                  browser.close()
+
+                  raise SystemExit(1)
+
+              profile_url = (
+                  f"https://www.instagram.com/"
+                  f"{ACCOUNT}/"
+              )
+
+              print("")
+              print(
+                  f"Introduciendo: {profile_url}"
+              )
+
+              inputs.first.fill(
+                  profile_url
+              )
+
+              time.sleep(2)
+
+              inspect_page(
+                  page,
+                  "DESPUÉS DE INTRODUCIR LA CUENTA"
+              )
+
+              # ======================================================
+              # BOTÓN
+              # ======================================================
+
+              print("")
+              print("=" * 80)
+              print(
+                  "BUSCANDO BOTÓN DESCARGAR"
+              )
+              print("=" * 80)
+
+              buttons = page.get_by_text(
+                  "Descargar",
+                  exact=True
+              )
+
+              print(
+                  "Coincidencias exactas: "
+                  f"{buttons.count()}"
+              )
+
+              if buttons.count() == 0:
+
+                  buttons = page.locator(
+                      "button, "
+                      "input[type='submit']"
+                  )
+
+                  print(
+                      "Botones alternativos: "
+                      f"{buttons.count()}"
+                  )
+
+              if buttons.count() == 0:
+
+                  print(
+                      "❌ No se encontró botón."
+                  )
+
+                  browser.close()
+
+                  raise SystemExit(1)
+
+              print("")
+              print(
+                  "Pulsando el primer botón..."
+              )
+
+              buttons.first.click()
+
+              # ======================================================
+              # ESPERA SIN SELECTOR ESPECÍFICO
+              # ======================================================
+
+              print("")
+              print("=" * 80)
+              print(
+                  "ESPERANDO CARGA DEL RESULTADO"
+              )
+              print("=" * 80)
+
+              # IMPORTANTE:
+              # No esperamos img.media-content__image.
+              # Esperamos tiempo y luego inspeccionamos
+              # TODO lo que haya cargado.
+
+              for i in range(1, 11):
+
+                  time.sleep(2)
+
                   try:
-                      text = page.locator("body").inner_text()
 
-                      interesting = []
+                      img_count = page.locator(
+                          "img"
+                      ).count()
 
-                      for line in text.splitlines():
-                          line = line.strip()
+                      video_count = page.locator(
+                          "video"
+                      ).count()
 
-                          if not line:
-                              continue
+                      source_count = page.locator(
+                          "source"
+                      ).count()
 
-                          lower = line.lower()
+                      link_count = page.locator(
+                          "a"
+                      ).count()
 
-                          if any(
-                              word in lower
-                              for word in [
-                                  "download",
-                                  "descargar",
-                                  "story",
-                                  "histor",
-                                  ACCOUNT.lower(),
-                                  "mp4",
-                                  "jpg"
-                              ]
-                          ):
-                              interesting.append(line)
-
-                      print(
-                          "Texto relevante:"
+                      media_link_count = (
+                          page.locator(
+                              'a[href*="media.sssinstagram.com/get"]'
+                          ).count()
                       )
 
-                      for line in interesting[:30]:
-                          print(f"  {line}")
-
-                  except Exception:
-                      pass
-
-              print()
-              print("=" * 70)
-              print("8. RESULTADO FINAL")
-              print("=" * 70)
-
-              print(f"URL final: {page.url}")
-              print(f"Título final: {page.title()}")
-
-              print()
-              print("CANTIDAD DE ELEMENTOS")
-              print("-" * 70)
-
-              selectors = [
-                  ("video", "video"),
-                  ("source", "source"),
-                  ("img", "img"),
-                  ("a", "a"),
-                  ("button", "button"),
-                  ("iframe", "iframe"),
-                  ("article", "article"),
-                  ("section", "section")
-              ]
-
-              for name, selector in selectors:
-                  try:
-                      print(
-                          f"{name}: "
-                          f"{page.locator(selector).count()}"
-                      )
-                  except Exception:
-                      print(f"{name}: error")
-
-              print()
-              print("=" * 70)
-              print("9. VIDEOS")
-              print("=" * 70)
-
-              videos = page.locator("video")
-
-              print(f"Videos encontrados: {videos.count()}")
-
-              for i in range(videos.count()):
-                  try:
-                      video = videos.nth(i)
-
-                      print(
-                          f"VIDEO #{i}"
+                      media_img_count = (
+                          page.locator(
+                              'img[src*="media.sssinstagram.com/get"]'
+                          ).count()
                       )
 
                       print(
-                          f"  src: "
-                          f"{video.get_attribute('src')}"
-                      )
-
-                      print(
-                          f"  poster: "
-                          f"{video.get_attribute('poster')}"
-                      )
-
-                      print(
-                          f"  outerHTML: "
-                          f"{video.evaluate('(el) => el.outerHTML')[:2000]}"
+                          f"Espera {i}/10 | "
+                          f"img={img_count} | "
+                          f"video={video_count} | "
+                          f"source={source_count} | "
+                          f"a={link_count} | "
+                          f"media-links="
+                          f"{media_link_count} | "
+                          f"media-img="
+                          f"{media_img_count}"
                       )
 
                   except Exception as e:
-                      print(f"VIDEO #{i}: error {e}")
 
-              print()
-              print("=" * 70)
-              print("10. IMÁGENES")
-              print("=" * 70)
+                      print(
+                          f"Error durante espera: "
+                          f"{e}"
+                      )
 
-              images = page.locator("img")
+              # ======================================================
+              # INSPECCIÓN SIN SCROLL
+              # ======================================================
 
-              print(f"Imágenes encontradas: {images.count()}")
-
-              for i in range(images.count()):
-                  try:
-                      image = images.nth(i)
-
-                      src = image.get_attribute("src") or ""
-                      alt = image.get_attribute("alt") or ""
-
-                      if (
-                          "instagram" in src.lower()
-                          or "media" in src.lower()
-                          or "story" in src.lower()
-                          or "image" in src.lower()
-                          or "story" in alt.lower()
-                      ):
-                          print(
-                              f"IMG #{i} | "
-                              f"alt={alt!r} | "
-                              f"src={src[:500]}"
-                          )
-
-                  except Exception:
-                      pass
-
-              print()
-              print("=" * 70)
-              print("11. ENLACES DE DESCARGA")
-              print("=" * 70)
-
-              links = page.locator("a")
-
-              relevant_links = []
-
-              for i in range(links.count()):
-                  try:
-                      link = links.nth(i)
-
-                      text = link.inner_text().strip()
-                      href = link.get_attribute("href") or ""
-
-                      combined = (
-                          text + " " + href
-                      ).lower()
-
-                      if any(
-                          word in combined
-                          for word in [
-                              "download",
-                              "descargar",
-                              ".mp4",
-                              ".jpg",
-                              ".jpeg",
-                              ".png",
-                              "media",
-                              "story"
-                          ]
-                      ):
-                          relevant_links.append(
-                              (i, text, href)
-                          )
-
-                  except Exception:
-                      pass
-
-              print(
-                  f"Enlaces relevantes: "
-                  f"{len(relevant_links)}"
+              inspect_page(
+                  page,
+                  "RESULTADO ANTES DEL SCROLL"
               )
 
-              for i, text, href in relevant_links:
+              # ======================================================
+              # SCROLL
+              # ======================================================
+
+              scroll_everything(
+                  page
+              )
+
+              # ======================================================
+              # INSPECCIÓN FINAL
+              # ======================================================
+
+              inspect_page(
+                  page,
+                  "RESULTADO DESPUÉS DEL SCROLL"
+              )
+
+              # ======================================================
+              # RESUMEN ESTRUCTURAL DE MEDIA
+              # ======================================================
+
+              print("")
+              print("")
+              print("=" * 80)
+              print(
+                  "RESUMEN ESTRUCTURAL"
+              )
+              print("=" * 80)
+
+              try:
+
+                  summary = page.evaluate(
+                      """
+                      () => {
+
+                          const result = {
+
+                              imgs: 0,
+                              videos: 0,
+                              sources: 0,
+                              anchors: 0,
+                              mediaUrls: [],
+                              elements: []
+
+                          };
+
+                          const seen =
+                              new Set();
+
+                          for (
+                              const el of
+                              document.querySelectorAll("*")
+                          ) {
+
+                              const tag =
+                                  el.tagName.toLowerCase();
+
+                              if (
+                                  tag === "img"
+                              ) {
+                                  result.imgs++;
+                              }
+
+                              if (
+                                  tag === "video"
+                              ) {
+                                  result.videos++;
+                              }
+
+                              if (
+                                  tag === "source"
+                              ) {
+                                  result.sources++;
+                              }
+
+                              if (
+                                  tag === "a"
+                              ) {
+                                  result.anchors++;
+                              }
+
+                              for (
+                                  const attr of
+                                  Array.from(
+                                      el.attributes || []
+                                  )
+                              ) {
+
+                                  const value =
+                                      attr.value || "";
+
+                                  if (
+                                      !value.includes(
+                                          "media.sssinstagram.com/get"
+                                      )
+                                  ) {
+                                      continue;
+                                  }
+
+                                  if (
+                                      !seen.has(value)
+                                  ) {
+
+                                      seen.add(value);
+
+                                      result.mediaUrls.push(
+                                          value
+                                      );
+
+                                  }
+
+                                  result.elements.push({
+
+                                      tag:
+                                          tag,
+
+                                      className:
+                                          typeof el.className
+                                          === "string"
+                                              ? el.className
+                                              : "",
+
+                                      id:
+                                          el.id || "",
+
+                                      attribute:
+                                          attr.name,
+
+                                      value:
+                                          value
+
+                                  });
+
+                              }
+
+                          }
+
+                          return result;
+                      }
+                      """
+                  )
+
                   print(
-                      f"A #{i} | "
-                      f"text={text!r} | "
-                      f"href={href[:1000]}"
+                      f"IMG: "
+                      f"{summary['imgs']}"
                   )
 
-              print()
-              print("=" * 70)
-              print("12. BUSCANDO URLs DE MEDIOS EN TODO EL DOM")
-              print("=" * 70)
-
-              html = page.content()
-
-              keywords = [
-                  "http://",
-                  "https://",
-                  ".mp4",
-                  ".jpg",
-                  ".jpeg",
-                  ".png",
-                  "media",
-                  "video"
-              ]
-
-              found_urls = set()
-
-              import re
-
-              urls = re.findall(
-                  r'https?://[^"\'<>\s]+',
-                  html
-              )
-
-              for url in urls:
-                  clean = (
-                      url
-                      .replace("&amp;", "&")
+                  print(
+                      f"VIDEO: "
+                      f"{summary['videos']}"
                   )
 
-                  lower = clean.lower()
+                  print(
+                      f"SOURCE: "
+                      f"{summary['sources']}"
+                  )
 
-                  if any(
-                      key in lower
-                      for key in [
-                          ".mp4",
-                          ".jpg",
-                          ".jpeg",
-                          ".png",
-                          "media.",
-                          "cdn",
-                          "video"
-                      ]
+                  print(
+                      f"A: "
+                      f"{summary['anchors']}"
+                  )
+
+                  print(
+                      "URLs media únicas: "
+                      f"{len(summary['mediaUrls'])}"
+                  )
+
+                  print("")
+                  print(
+                      "ELEMENTOS QUE CONTIENEN "
+                      "MEDIA:"
+                  )
+
+                  for i, item in enumerate(
+                      summary["elements"][:200]
                   ):
-                      found_urls.add(clean)
 
+                      print("")
+                      print(
+                          f"MEDIA ELEMENT #{i}"
+                      )
+
+                      print(
+                          f"  tag: "
+                          f"{item['tag']}"
+                      )
+
+                      print(
+                          f"  class: "
+                          f"{item['className']!r}"
+                      )
+
+                      print(
+                          f"  id: "
+                          f"{item['id']!r}"
+                      )
+
+                      print(
+                          f"  attribute: "
+                          f"{item['attribute']!r}"
+                      )
+
+                      print(
+                          f"  value: "
+                          f"{item['value'][:1200]}"
+                      )
+
+              except Exception as e:
+
+                  print(
+                      f"Error creando resumen: {e}"
+                  )
+
+              # ======================================================
+              # FIN
+              # ======================================================
+
+              print("")
+              print("")
+              print("=" * 80)
               print(
-                  f"URLs de medios encontradas: "
-                  f"{len(found_urls)}"
+                  "DIAGNÓSTICO TERMINADO"
               )
-
-              for url in list(found_urls)[:100]:
-                  print(url[:1500])
-
-              print()
-              print("=" * 70)
-              print("13. TEXTO DE LA PÁGINA")
-              print("=" * 70)
-
-              body_text = page.locator("body").inner_text()
-
-              lines = [
-                  line.strip()
-                  for line in body_text.splitlines()
-                  if line.strip()
-              ]
-
+              print("=" * 80)
               print(
-                  f"Total de líneas: {len(lines)}"
+                  "No se enviaron archivos a Telegram."
               )
-
-              for line in lines[:250]:
-                  print(line)
-
-              print()
-              print("=" * 70)
-              print("14. GUARDANDO HTML Y SCREENSHOT")
-              print("=" * 70)
-
-              Path(
-                  "snapgram-debug.html"
-              ).write_text(
-                  page.content(),
-                  encoding="utf-8"
+              print(
+                  "No se modificó instagram-state.json."
               )
-
-              page.screenshot(
-                  path="snapgram-debug.png",
-                  full_page=True
+              print(
+                  "No se modificó instagram-accounts.json."
               )
-
-              print("HTML guardado.")
-              print("Screenshot guardado.")
+              print("=" * 80)
 
               browser.close()
-
-          print()
-          print("=" * 70)
-          print("DIAGNÓSTICO TERMINADO")
-          print("=" * 70)
-          print("NO se modificó el monitor.")
-          print("NO se modificó instagram-state.json.")
-          print("NO se envió nada a Telegram.")
-          print("=" * 70)
-
-      - name: Subir diagnóstico
-        uses: actions/upload-artifact@v4
-        with:
-          name: snapgram-debug
-          path: |
-            snapgram-debug.html
-            snapgram-debug.png
-          if-no-files-found: warn

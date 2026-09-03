@@ -1,13 +1,13 @@
-name: Instagram Stories Monitor - DIAGNOSTICO
+name: Instagram Stories - DIAGNOSTICO RED
 
 on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  monitor:
+  network-diagnostic:
     runs-on: ubuntu-latest
 
     steps:
@@ -18,13 +18,13 @@ jobs:
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install playwright requests
+          pip install playwright
           playwright install --with-deps chromium
 
-      - name: Crear diagnóstico
+      - name: Crear diagnóstico de red
         run: |
 
-          cat > diagnostico.py <<'PY'
+          cat > diagnostico_red.py <<'PY'
 
           import json
           import time
@@ -32,24 +32,426 @@ jobs:
 
           from playwright.sync_api import sync_playwright
 
-          SNAPGRAM_URL = "https://www.snapgram.io/instagram-story-downloader/"
+
+          SNAPGRAM_URL = (
+              "https://www.snapgram.io/"
+              "instagram-story-downloader/"
+          )
+
           ACCOUNTS_FILE = "data/instagram-accounts.json"
 
+          LOG_FILE = "network-log.txt"
+
+
           def load_accounts():
-              with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
+
+              with open(
+                  ACCOUNTS_FILE,
+                  "r",
+                  encoding="utf-8"
+              ) as f:
                   return json.load(f)
 
-          def open_snapgram(page, username):
 
-              story_url = f"https://www.instagram.com/stories/{username}/"
+          log_file = open(
+              LOG_FILE,
+              "w",
+              encoding="utf-8"
+          )
 
-              print()
-              print("=" * 50)
-              print(f"CUENTA: @{username}")
-              print("=" * 50)
 
-              print("URL:")
-              print(story_url)
+          def log(text=""):
+
+              print(text)
+              log_file.write(text + "\n")
+              log_file.flush()
+
+
+          def shorten(text, limit=2000):
+
+              if text is None:
+                  return ""
+
+              text = str(text)
+
+              if len(text) > limit:
+                  return text[:limit] + "... [RECORTADO]"
+
+              return text
+
+
+          def interesting_url(url):
+
+              url_lower = url.lower()
+
+              keywords = [
+                  "instagram",
+                  "story",
+                  "stories",
+                  "reel",
+                  "media",
+                  "download",
+                  "api",
+                  "graphql",
+                  "json",
+                  "cdn",
+                  "video",
+                  "image",
+                  "scontent",
+                  "fbcdn",
+                  "cdninstagram",
+                  "snapgram"
+              ]
+
+              return any(
+                  keyword in url_lower
+                  for keyword in keywords
+              )
+
+
+          def get_content_type(response):
+
+              try:
+                  return (
+                      response.headers.get(
+                          "content-type",
+                          ""
+                      )
+                      or ""
+                  )
+              except Exception:
+                  return ""
+
+
+          def attach_network_listeners(page):
+
+              request_counter = {
+                  "total": 0,
+                  "interesting": 0,
+                  "responses": 0
+              }
+
+
+              def on_request(request):
+
+                  request_counter["total"] += 1
+
+                  url = request.url
+
+                  if not interesting_url(url):
+                      return
+
+                  request_counter["interesting"] += 1
+
+                  log()
+                  log(">>> REQUEST")
+                  log(
+                      f"METHOD: {request.method}"
+                  )
+                  log(
+                      f"URL: {url}"
+                  )
+
+                  try:
+
+                      headers = request.all_headers()
+
+                      interesting_headers = {}
+
+                      for key, value in headers.items():
+
+                          key_lower = key.lower()
+
+                          if key_lower in [
+                              "content-type",
+                              "accept",
+                              "referer",
+                              "origin",
+                              "x-requested-with"
+                          ]:
+                              interesting_headers[key] = value
+
+                      if interesting_headers:
+
+                          log(
+                              "HEADERS:"
+                          )
+
+                          log(
+                              json.dumps(
+                                  interesting_headers,
+                                  indent=2,
+                                  ensure_ascii=False
+                              )
+                          )
+
+                  except Exception as e:
+
+                      log(
+                          f"Headers error: {e}"
+                      )
+
+
+              def on_response(response):
+
+                  request_counter["responses"] += 1
+
+                  url = response.url
+
+                  if not interesting_url(url):
+                      return
+
+                  log()
+                  log("<<< RESPONSE")
+
+                  log(
+                      f"HTTP: {response.status}"
+                  )
+
+                  log(
+                      f"METHOD: "
+                      f"{response.request.method}"
+                  )
+
+                  log(
+                      f"URL: {url}"
+                  )
+
+                  content_type = get_content_type(
+                      response
+                  )
+
+                  log(
+                      f"Content-Type: "
+                      f"{content_type}"
+                  )
+
+                  try:
+
+                      headers = response.all_headers()
+
+                      interesting_headers = {}
+
+                      for key, value in headers.items():
+
+                          key_lower = key.lower()
+
+                          if key_lower in [
+                              "content-type",
+                              "content-length",
+                              "location",
+                              "server"
+                          ]:
+                              interesting_headers[key] = value
+
+                      if interesting_headers:
+
+                          log(
+                              "RESPONSE HEADERS:"
+                          )
+
+                          log(
+                              json.dumps(
+                                  interesting_headers,
+                                  indent=2,
+                                  ensure_ascii=False
+                              )
+                          )
+
+                  except Exception:
+                      pass
+
+
+                  # Intentar leer respuestas pequeñas
+                  # que parezcan JSON/texto.
+                  try:
+
+                      ct = content_type.lower()
+
+                      if (
+                          "json" in ct
+                          or "text/" in ct
+                          or "javascript" in ct
+                      ):
+
+                          body = response.text(
+                              timeout=5000
+                          )
+
+                          if len(body) <= 15000:
+
+                              log(
+                                  "RESPONSE BODY:"
+                              )
+
+                              log(
+                                  shorten(
+                                      body,
+                                      15000
+                                  )
+                              )
+
+                          else:
+
+                              log(
+                                  "RESPONSE BODY: "
+                                  f"[{len(body)} caracteres, "
+                                  "demasiado grande]"
+                              )
+
+                  except Exception as e:
+
+                      log(
+                          f"No se pudo leer body: {e}"
+                      )
+
+
+              page.on(
+                  "request",
+                  on_request
+              )
+
+              page.on(
+                  "response",
+                  on_response
+              )
+
+              return request_counter
+
+
+          def find_input(page):
+
+              selectors = [
+                  "input[type='text']",
+                  "input",
+                  "textarea"
+              ]
+
+              for selector in selectors:
+
+                  try:
+
+                      locator = page.locator(
+                          selector
+                      )
+
+                      count = locator.count()
+
+                      for i in range(count):
+
+                          element = locator.nth(i)
+
+                          if element.is_visible():
+
+                              return element
+
+                  except Exception:
+                      pass
+
+              return None
+
+
+          def find_download_button(page):
+
+              buttons = page.locator(
+                  "button, "
+                  "input[type='submit'], "
+                  "a"
+              )
+
+              for i in range(buttons.count()):
+
+                  try:
+
+                      button = buttons.nth(i)
+
+                      if not button.is_visible():
+                          continue
+
+                      text = (
+                          button.inner_text()
+                          .strip()
+                          .lower()
+                      )
+
+                      value = (
+                          button.get_attribute(
+                              "value"
+                          )
+                          or ""
+                      ).strip().lower()
+
+                      combined = (
+                          text
+                          + " "
+                          + value
+                      )
+
+                      if "download" in combined:
+
+                          return button
+
+                  except Exception:
+                      pass
+
+              return None
+
+
+          def dump_all_requests_summary(
+              request_counter
+          ):
+
+              log()
+              log("=" * 60)
+              log("RESUMEN DE RED")
+              log("=" * 60)
+
+              log(
+                  f"Total requests: "
+                  f"{request_counter['total']}"
+              )
+
+              log(
+                  f"Requests interesantes: "
+                  f"{request_counter['interesting']}"
+              )
+
+              log(
+                  f"Responses interesantes: "
+                  f"{request_counter['responses']}"
+              )
+
+
+          def process_account(
+              page,
+              username
+          ):
+
+              log()
+              log("=" * 70)
+              log(
+                  f"CUENTA: @{username}"
+              )
+              log("=" * 70)
+
+              story_url = (
+                  "https://www.instagram.com/"
+                  f"stories/{username}/"
+              )
+
+              log()
+              log(
+                  "STORY URL:"
+              )
+
+              log(story_url)
+
+              log()
+              log(
+                  "Abriendo Snapgram:"
+              )
+
+              log(SNAPGRAM_URL)
 
               page.goto(
                   SNAPGRAM_URL,
@@ -57,341 +459,282 @@ jobs:
                   timeout=60000
               )
 
-              page.wait_for_timeout(3000)
+              log(
+                  "Página cargada."
+              )
 
-              # Buscar campo
-              input_box = None
+              page.wait_for_timeout(
+                  3000
+              )
 
-              for selector in [
-                  "input[type='text']",
-                  "input",
-                  "textarea"
-              ]:
+              # -------------------------------------------------
+              # Instalar listeners ANTES del botón Download.
+              # -------------------------------------------------
 
-                  try:
-                      locator = page.locator(selector)
+              request_counter = (
+                  attach_network_listeners(
+                      page
+                  )
+              )
 
-                      for i in range(locator.count()):
+              log()
+              log(
+                  "Listeners de red instalados."
+              )
 
-                          candidate = locator.nth(i)
+              # -------------------------------------------------
+              # Campo.
+              # -------------------------------------------------
 
-                          if candidate.is_visible():
-                              input_box = candidate
-                              break
-
-                      if input_box:
-                          break
-
-                  except Exception:
-                      pass
+              input_box = find_input(page)
 
               if not input_box:
+
                   raise RuntimeError(
                       "No se encontró el campo."
                   )
 
-              print("Campo encontrado.")
-
-              input_box.fill(story_url)
-
-              # Buscar Download
-              buttons = page.locator(
-                  "button, input[type='submit'], a"
+              log(
+                  "Campo encontrado."
               )
 
-              download_button = None
+              input_box.fill(
+                  story_url
+              )
 
-              for i in range(buttons.count()):
+              log(
+                  "URL introducida."
+              )
 
-                  try:
+              page.wait_for_timeout(
+                  1000
+              )
 
-                      b = buttons.nth(i)
+              # -------------------------------------------------
+              # Download.
+              # -------------------------------------------------
 
-                      if not b.is_visible():
-                          continue
-
-                      text = (
-                          b.inner_text()
-                          .strip()
-                          .lower()
-                      )
-
-                      value = (
-                          b.get_attribute("value")
-                          or ""
-                      ).strip().lower()
-
-                      if "download" in (text + " " + value):
-
-                          download_button = b
-                          break
-
-                  except Exception:
-                      pass
+              download_button = (
+                  find_download_button(page)
+              )
 
               if not download_button:
+
                   raise RuntimeError(
-                      "No se encontró Download."
+                      "No se encontró "
+                      "el botón Download."
                   )
 
-              print("Botón encontrado: Download")
+              log(
+                  "Botón Download encontrado."
+              )
+
+              log()
+              log(
+                  ">>> HACIENDO CLICK EN DOWNLOAD <<<"
+              )
+
+              click_time = time.time()
 
               download_button.click()
 
-              print("Download pulsado.")
-
-          def dump_elements(page):
-
-              print()
-              print("=" * 50)
-              print("DIAGNÓSTICO DEL DOM")
-              print("=" * 50)
-
-              # VIDEOS
-              videos = page.locator("video")
-
-              print()
-              print(
-                  f"VIDEOS ENCONTRADOS: {videos.count()}"
+              log(
+                  "Click realizado."
               )
 
-              for i in range(videos.count()):
+              # -------------------------------------------------
+              # Esperar bastante tiempo para capturar
+              # las peticiones posteriores.
+              # -------------------------------------------------
 
-                  try:
+              log()
+              log(
+                  "Capturando tráfico durante "
+                  "30 segundos..."
+              )
+
+              for second in range(30):
+
+                  page.wait_for_timeout(
+                      1000
+                  )
+
+                  log(
+                      f"Segundo "
+                      f"{second + 1}/30"
+                  )
+
+              # -------------------------------------------------
+              # Estado del DOM.
+              # -------------------------------------------------
+
+              log()
+              log("=" * 60)
+              log(
+                  "ESTADO DEL DOM DESPUÉS DEL DOWNLOAD"
+              )
+              log("=" * 60)
+
+              try:
+
+                  videos = page.locator(
+                      "video"
+                  )
+
+                  log(
+                      f"Videos: "
+                      f"{videos.count()}"
+                  )
+
+                  for i in range(
+                      videos.count()
+                  ):
 
                       video = videos.nth(i)
 
-                      print()
-                      print(
+                      log()
+                      log(
                           f"VIDEO #{i + 1}"
                       )
 
-                      print(
-                          "src =",
-                          video.get_attribute("src")
-                      )
-
-                      print(
-                          "poster =",
-                          video.get_attribute("poster")
-                      )
-
-                      print(
-                          "currentSrc =",
-                          video.evaluate(
-                              "(el) => el.currentSrc"
+                      log(
+                          "src="
+                          + str(
+                              video.get_attribute(
+                                  "src"
+                              )
                           )
                       )
 
-                      print(
-                          "outerHTML =",
-                          video.evaluate(
-                              "(el) => el.outerHTML"
-                          )[:2000]
+                      log(
+                          "currentSrc="
+                          + str(
+                              video.evaluate(
+                                  "(el) => el.currentSrc"
+                              )
+                          )
                       )
 
-                  except Exception as e:
-
-                      print(
-                          "Error leyendo video:",
-                          e
+                      log(
+                          "poster="
+                          + str(
+                              video.get_attribute(
+                                  "poster"
+                              )
+                          )
                       )
 
-              # IMÁGENES
-              images = page.locator("img")
+                      log(
+                          "outerHTML="
+                      )
 
-              print()
-              print(
-                  f"IMAGENES ENCONTRADAS: {images.count()}"
-              )
+                      log(
+                          shorten(
+                              video.evaluate(
+                                  "(el) => el.outerHTML"
+                              ),
+                              5000
+                          )
+                      )
 
-              for i in range(images.count()):
+              except Exception as e:
 
-                  try:
+                  log(
+                      f"Error videos: {e}"
+                  )
+
+
+              try:
+
+                  images = page.locator(
+                      "img"
+                  )
+
+                  log(
+                      f"Imágenes: "
+                      f"{images.count()}"
+                  )
+
+                  for i in range(
+                      images.count()
+                  ):
 
                       img = images.nth(i)
 
-                      print()
-                      print(
+                      src = (
+                          img.get_attribute(
+                              "src"
+                          )
+                          or ""
+                      )
+
+                      # Solo mostrar imágenes
+                      # que no sean los assets locales
+                      # de Snapgram.
+                      if (
+                          src.startswith("/")
+                          or "_next/static" in src
+                      ):
+                          continue
+
+                      log()
+                      log(
                           f"IMAGEN #{i + 1}"
                       )
 
-                      print(
-                          "src =",
-                          img.get_attribute("src")
+                      log(
+                          "src="
+                          + src
                       )
 
-                      print(
-                          "srcset =",
-                          img.get_attribute("srcset")
-                      )
-
-                      print(
-                          "alt =",
-                          img.get_attribute("alt")
-                      )
-
-                      print(
-                          "class =",
-                          img.get_attribute("class")
-                      )
-
-                      print(
-                          "width =",
-                          img.get_attribute("width")
-                      )
-
-                      print(
-                          "height =",
-                          img.get_attribute("height")
-                      )
-
-                  except Exception as e:
-
-                      print(
-                          "Error leyendo imagen:",
-                          e
-                      )
-
-              # ENLACES
-              links = page.locator("a")
-
-              print()
-              print(
-                  f"ENLACES ENCONTRADOS: {links.count()}"
-              )
-
-              for i in range(links.count()):
-
-                  try:
-
-                      a = links.nth(i)
-
-                      href = (
-                          a.get_attribute("href")
-                          or ""
-                      ).strip()
-
-                      text = (
-                          a.inner_text()
-                          .strip()
-                          .replace("\n", " ")
-                      )
-
-                      if href:
-
-                          print()
-                          print(
-                              f"LINK #{i + 1}"
+                      log(
+                          "srcset="
+                          + str(
+                              img.get_attribute(
+                                  "srcset"
+                              )
                           )
+                      )
 
-                          print(
-                              "texto =",
-                              text[:300]
-                          )
+              except Exception as e:
 
-                          print(
-                              "href =",
-                              href[:2000]
-                          )
-
-                  except Exception:
-                      pass
-
-          def scroll_internal(page):
-
-              print()
-              print("=" * 50)
-              print("BUSCANDO CONTENEDORES SCROLLABLES")
-              print("=" * 50)
-
-              for n in range(10):
-
-                  moved = page.evaluate("""
-                  () => {
-
-                      const elements =
-                          Array.from(
-                              document.querySelectorAll("*")
-                          );
-
-                      let best = null;
-
-                      for (const el of elements) {
-
-                          const style =
-                              window.getComputedStyle(el);
-
-                          if (
-                              style.overflowY !== "auto" &&
-                              style.overflowY !== "scroll"
-                          ) {
-                              continue;
-                          }
-
-                          if (
-                              el.scrollHeight >
-                              el.clientHeight + 100
-                          ) {
-
-                              if (
-                                  !best ||
-                                  el.scrollHeight >
-                                  best.scrollHeight
-                              ) {
-                                  best = el;
-                              }
-
-                          }
-
-                      }
-
-                      if (!best) {
-                          return {
-                              moved: 0,
-                              found: false
-                          };
-                      }
-
-                      const before =
-                          best.scrollTop;
-
-                      best.scrollTop +=
-                          Math.max(
-                              500,
-                              best.clientHeight
-                          );
-
-                      return {
-                          moved:
-                              best.scrollTop - before,
-                          found: true,
-                          scrollTop:
-                              best.scrollTop,
-                          scrollHeight:
-                              best.scrollHeight,
-                          clientHeight:
-                              best.clientHeight
-                      };
-                  }
-                  """)
-
-                  print(
-                      f"Scroll {n + 1}/10:",
-                      moved
+                  log(
+                      f"Error imágenes: {e}"
                   )
 
-                  page.wait_for_timeout(1500)
+
+              dump_all_requests_summary(
+                  request_counter
+              )
+
 
           def main():
 
               accounts = load_accounts()
 
-              print()
-              print("=" * 60)
-              print("INSTAGRAM STORIES - DIAGNOSTICO")
-              print("DESCARGADOR: SNAPGRAM")
-              print("=" * 60)
+              log()
+              log("=" * 70)
+              log(
+                  "INSTAGRAM STORIES"
+              )
+              log(
+                  "DIAGNOSTICO DE RED"
+              )
+              log(
+                  "DESCARGADOR: SNAPGRAM"
+              )
+              log("=" * 70)
+
+              log()
+              log(
+                  "Cuentas:"
+              )
+
+              for account in accounts:
+
+                  log(
+                      f"  - @{account}"
+                  )
 
               with sync_playwright() as p:
 
@@ -400,10 +743,12 @@ jobs:
                   )
 
                   context = browser.new_context(
+
                       viewport={
                           "width": 1280,
                           "height": 1000
                       },
+
                       user_agent=(
                           "Mozilla/5.0 "
                           "(X11; Linux x86_64) "
@@ -420,66 +765,31 @@ jobs:
 
                       try:
 
-                          open_snapgram(
+                          process_account(
                               page,
                               username
                           )
 
-                          # Esperar a que aparezcan resultados
-                          print()
-                          print(
-                              "Esperando resultados..."
-                          )
-
-                          for n in range(15):
-
-                              print(
-                                  f"Espera {n + 1}/15"
-                              )
-
-                              page.wait_for_timeout(1000)
-
-                              # Contar elementos
-                              v = page.locator(
-                                  "video"
-                              ).count()
-
-                              im = page.locator(
-                                  "img"
-                              ).count()
-
-                              print(
-                                  f"  videos={v} "
-                                  f"imagenes={im}"
-                              )
-
-                              if v > 0 or im > 0:
-
-                                  if n >= 1:
-                                      break
-
-                          dump_elements(page)
-
-                          scroll_internal(page)
-
-                          print()
-                          print(
-                              "DOM DESPUES DEL SCROLL"
-                          )
-
-                          dump_elements(page)
-
                       except Exception as e:
 
-                          print()
-                          print(
-                              f"ERROR @{username}:"
+                          log()
+                          log(
+                              f"❌ ERROR @{username}"
                           )
-                          print(e)
 
-                      page.wait_for_timeout(2000)
+                          log(
+                              repr(e)
+                          )
+
+                      # Pausa entre cuentas.
+                      page.wait_for_timeout(
+                          3000
+                      )
 
                   browser.close()
+
+              log_file.close()
+
 
           if __name__ == "__main__":
               main()
@@ -488,8 +798,16 @@ jobs:
 
       - name: Comprobar sintaxis
         run: |
-          python -m py_compile diagnostico.py
+          python -m py_compile diagnostico_red.py
 
       - name: Ejecutar diagnóstico
         run: |
-          python diagnostico.py
+          python diagnostico_red.py
+
+      - name: Subir log de red
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instagram-network-log
+          path: network-log.txt
+          retention-days: 7

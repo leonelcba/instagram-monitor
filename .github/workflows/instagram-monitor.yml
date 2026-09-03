@@ -1,4 +1,4 @@
-name: Monitor Instagram Stories
+name: Instagram Stories Monitor
 
 on:
   workflow_dispatch:
@@ -11,15 +11,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Descargar repositorio
+
+      # ==========================================
+      # DESCARGAR EL REPOSITORIO
+      # ==========================================
+      - name: Checkout
         uses: actions/checkout@v4
 
+      # ==========================================
+      # INSTALAR PYTHON Y PLAYWRIGHT
+      # ==========================================
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
           pip install playwright requests
-          playwright install --with-deps chromium
+          playwright install chromium
 
+      # ==========================================
+      # CREAR EL MONITOR
+      # ==========================================
       - name: Crear monitor
         run: |
           cat > monitor_instagram.py <<'PY'
@@ -28,7 +38,6 @@ jobs:
           import time
           import hashlib
           import requests
-
           from pathlib import Path
           from playwright.sync_api import sync_playwright
 
@@ -42,22 +51,30 @@ jobs:
           TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
           TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-
           DOWNLOAD_DIR.mkdir(exist_ok=True)
           STATE_FILE.parent.mkdir(exist_ok=True)
 
 
+          # ==========================================
+          # CARGAR CUENTAS
+          # ==========================================
           def load_accounts():
+
               if not ACCOUNTS_FILE.exists():
                   print("❌ No existe data/instagram-accounts.json")
                   return []
 
-              with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
+              with open(
+                  ACCOUNTS_FILE,
+                  "r",
+                  encoding="utf-8"
+              ) as f:
                   accounts = json.load(f)
 
               cleaned = []
 
               for account in accounts:
+
                   account = str(account).strip()
                   account = account.replace("@", "")
                   account = account.rstrip("/")
@@ -68,25 +85,47 @@ jobs:
               return cleaned
 
 
+          # ==========================================
+          # CARGAR ESTADO
+          # ==========================================
           def load_state():
+
               if not STATE_FILE.exists():
                   return {}
 
               try:
-                  with open(STATE_FILE, "r", encoding="utf-8") as f:
+
+                  with open(
+                      STATE_FILE,
+                      "r",
+                      encoding="utf-8"
+                  ) as f:
+
                       data = json.load(f)
 
                   if isinstance(data, dict):
                       return data
 
               except Exception as e:
-                  print(f"⚠️ No se pudo leer el estado: {e}")
+
+                  print(
+                      f"⚠️ No se pudo leer el estado: {e}"
+                  )
 
               return {}
 
 
+          # ==========================================
+          # GUARDAR ESTADO
+          # ==========================================
           def save_state(state):
-              with open(STATE_FILE, "w", encoding="utf-8") as f:
+
+              with open(
+                  STATE_FILE,
+                  "w",
+                  encoding="utf-8"
+              ) as f:
+
                   json.dump(
                       state,
                       f,
@@ -95,12 +134,20 @@ jobs:
                   )
 
 
+          # ==========================================
+          # SHA-256 DEL ARCHIVO REAL
+          # ==========================================
           def sha256_file(path):
+
               sha256 = hashlib.sha256()
 
               with open(path, "rb") as f:
+
                   while True:
-                      chunk = f.read(1024 * 1024)
+
+                      chunk = f.read(
+                          1024 * 1024
+                      )
 
                       if not chunk:
                           break
@@ -110,14 +157,20 @@ jobs:
               return sha256.hexdigest()
 
 
+          # ==========================================
+          # TELEGRAM - FOTO
+          # ==========================================
           def telegram_send_photo(path, caption):
+
               url = (
                   f"https://api.telegram.org/bot"
                   f"{TELEGRAM_BOT_TOKEN}/sendPhoto"
               )
 
               try:
+
                   with open(path, "rb") as photo:
+
                       response = requests.post(
                           url,
                           data={
@@ -130,28 +183,43 @@ jobs:
                           timeout=120
                       )
 
-                  print("Telegram:", response.text)
+                  print(
+                      "Telegram:",
+                      response.text
+                  )
 
                   if response.ok:
+
                       data = response.json()
-                      return data.get("ok") is True
+
+                      return (
+                          data.get("ok") is True
+                      )
 
               except Exception as e:
+
                   print(
-                      f"❌ Error enviando foto a Telegram: {e}"
+                      f"❌ Error enviando foto "
+                      f"a Telegram: {e}"
                   )
 
               return False
 
 
+          # ==========================================
+          # TELEGRAM - VIDEO
+          # ==========================================
           def telegram_send_video(path, caption):
+
               url = (
                   f"https://api.telegram.org/bot"
                   f"{TELEGRAM_BOT_TOKEN}/sendVideo"
               )
 
               try:
+
                   with open(path, "rb") as video:
+
                       response = requests.post(
                           url,
                           data={
@@ -164,23 +232,44 @@ jobs:
                           timeout=180
                       )
 
-                  print("Telegram:", response.text)
+                  print(
+                      "Telegram:",
+                      response.text
+                  )
 
                   if response.ok:
+
                       data = response.json()
-                      return data.get("ok") is True
+
+                      return (
+                          data.get("ok") is True
+                      )
 
               except Exception as e:
+
                   print(
-                      f"❌ Error enviando video a Telegram: {e}"
+                      f"❌ Error enviando video "
+                      f"a Telegram: {e}"
                   )
 
               return False
 
 
-          def detect_extension(content_type, url):
-              content_type = (content_type or "").lower()
-              url_lower = (url or "").lower()
+          # ==========================================
+          # DETECTAR TIPO DE ARCHIVO
+          # ==========================================
+          def detect_extension(
+              content_type,
+              url
+          ):
+
+              content_type = (
+                  content_type or ""
+              ).lower()
+
+              url_lower = (
+                  url or ""
+              ).lower()
 
               if "video" in content_type:
                   return ".mp4", "video"
@@ -206,29 +295,41 @@ jobs:
               return ".jpg", "photo"
 
 
-          def download_media(url, destination_without_extension):
+          # ==========================================
+          # DESCARGAR MEDIA
+          # ==========================================
+          def download_media(
+              url,
+              destination_without_extension
+          ):
+
               print("Descargando:")
               print(url)
 
               headers = {
                   "User-Agent": (
-                      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "Mozilla/5.0 "
+                      "(Windows NT 10.0; Win64; x64) "
                       "AppleWebKit/537.36 "
                       "(KHTML, like Gecko) "
-                      "Chrome/139.0.0.0 Safari/537.36"
+                      "Chrome/139.0.0.0 "
+                      "Safari/537.36"
                   )
               }
 
               try:
+
                   response = requests.get(
                       url,
                       headers=headers,
                       timeout=120
                   )
 
-                  content_type = response.headers.get(
-                      "Content-Type",
-                      ""
+                  content_type = (
+                      response.headers.get(
+                          "Content-Type",
+                          ""
+                      )
                   )
 
                   print(
@@ -237,23 +338,38 @@ jobs:
                   )
 
                   if response.status_code != 200:
-                      print("❌ La descarga falló.")
+
+                      print(
+                          "❌ La descarga falló."
+                      )
+
                       return None
 
-                  extension, media_type = detect_extension(
-                      content_type,
-                      url
+                  extension, media_type = (
+                      detect_extension(
+                          content_type,
+                          url
+                      )
                   )
 
                   destination = Path(
-                      str(destination_without_extension)
+                      str(
+                          destination_without_extension
+                      )
                       + extension
                   )
 
-                  with open(destination, "wb") as f:
-                      f.write(response.content)
+                  with open(
+                      destination,
+                      "wb"
+                  ) as f:
+
+                      f.write(
+                          response.content
+                      )
 
                   if destination.stat().st_size == 0:
+
                       print(
                           "❌ Archivo descargado vacío."
                       )
@@ -276,17 +392,33 @@ jobs:
                   }
 
               except Exception as e:
+
                   print(
-                      f"❌ Error descargando archivo: {e}"
+                      f"❌ Error descargando "
+                      f"archivo: {e}"
                   )
 
                   return None
 
 
+          # ==========================================
+          # RECOPILAR STORIES
+          #
+          # IMPORTANTE:
+          # Usamos img.media-content__image
+          # para evitar la foto de perfil.
+          #
+          # Pero NO usamos la imagen como archivo.
+          #
+          # Buscamos el botón Descargar asociado
+          # a esa misma Story.
+          # ==========================================
           def collect_media(page):
+
               result = page.evaluate(
                   """
                   () => {
+
                       const output = [];
                       const seen = new Set();
 
@@ -331,7 +463,9 @@ jobs:
                                       !seen.has(mediaUrl)
                                   ) {
 
-                                      seen.add(mediaUrl);
+                                      seen.add(
+                                          mediaUrl
+                                      );
 
                                       output.push({
                                           preview: preview,
@@ -355,8 +489,13 @@ jobs:
               return result
 
 
+          # ==========================================
+          # SCROLL DE CONTENEDORES INTERNOS
+          # ==========================================
           def scroll_internal_containers(page):
+
               total_rounds = 20
+
               previous_count = 0
               stable_rounds = 0
 
@@ -366,6 +505,7 @@ jobs:
               ):
 
                   try:
+
                       moved = page.evaluate(
                           """
                           () => {
@@ -421,8 +561,10 @@ jobs:
                                       );
 
                                   if (
-                                      el.scrollTop !== oldTop
+                                      el.scrollTop !==
+                                      oldTop
                                   ) {
+
                                       count++;
                                   }
                               }
@@ -433,15 +575,19 @@ jobs:
                       )
 
                   except Exception as e:
+
                       print(
-                          f"⚠️ Error durante scroll interno: {e}"
+                          "⚠️ Error durante "
+                          f"scroll interno: {e}"
                       )
 
                       moved = 0
 
                   time.sleep(1.2)
 
-                  current_media = collect_media(page)
+                  current_media = collect_media(
+                      page
+                  )
 
                   current_count = len(
                       current_media
@@ -456,9 +602,15 @@ jobs:
                       f"{moved}"
                   )
 
-                  if current_count == previous_count:
+                  if (
+                      current_count ==
+                      previous_count
+                  ):
+
                       stable_rounds += 1
+
                   else:
+
                       stable_rounds = 0
 
                   previous_count = current_count
@@ -467,6 +619,7 @@ jobs:
                       moved == 0
                       and stable_rounds >= 2
                   ):
+
                       print(
                           "⏹️ No aparecen más Stories."
                       )
@@ -474,7 +627,11 @@ jobs:
                       break
 
 
+          # ==========================================
+          # ABRIR SSSINSTAGRAM
+          # ==========================================
           def open_stories(page, account):
+
               print(
                   "Abriendo SSSInstagram..."
               )
@@ -488,7 +645,8 @@ jobs:
               time.sleep(3)
 
               profile_url = (
-                  f"https://www.instagram.com/{account}/"
+                  f"https://www.instagram.com/"
+                  f"{account}/"
               )
 
               print(
@@ -496,9 +654,12 @@ jobs:
                   f"{profile_url}"
               )
 
-              inputs = page.locator("input")
+              inputs = page.locator(
+                  "input"
+              )
 
               if inputs.count() == 0:
+
                   print(
                       "❌ No se encontró "
                       "el campo de perfil."
@@ -522,11 +683,13 @@ jobs:
               )
 
               if buttons.count() == 0:
+
                   buttons = page.locator(
                       "button, input[type=submit]"
                   )
 
               if buttons.count() == 0:
+
                   print(
                       "❌ No se encontró "
                       "el botón Descargar."
@@ -542,6 +705,7 @@ jobs:
               )
 
               try:
+
                   page.wait_for_selector(
                       "img.media-content__image",
                       timeout=45000
@@ -562,11 +726,15 @@ jobs:
                       "Esperando más..."
                   )
 
-                  for intento in range(1, 7):
+                  for intento in range(
+                      1,
+                      7
+                  ):
 
                       time.sleep(5)
 
                       try:
+
                           count = page.locator(
                               "img.media-content__image"
                           ).count()
@@ -587,6 +755,7 @@ jobs:
                               return True
 
                       except Exception:
+
                           pass
 
                   print(
@@ -597,12 +766,22 @@ jobs:
                   return False
 
 
-          def process_account(page, account, state):
+          # ==========================================
+          # PROCESAR CUENTA
+          # ==========================================
+          def process_account(
+              page,
+              account,
+              state
+          ):
+
               print()
               print("=" * 50)
+
               print(
                   f"CUENTA: {account}"
               )
+
               print("=" * 50)
 
               account_state = state.get(
@@ -613,6 +792,7 @@ jobs:
                   account_state,
                   dict
               ):
+
                   account_state = {}
 
               known_hashes = set(
@@ -638,6 +818,7 @@ jobs:
                   page,
                   account
               ):
+
                   return 0, 0
 
               print(
@@ -707,6 +888,7 @@ jobs:
                   )
 
                   if preview_url:
+
                       print(
                           "URL Preview:   "
                           f"{preview_url[:180]}"
@@ -734,6 +916,7 @@ jobs:
                   )
 
                   if not downloaded:
+
                       continue
 
                   path = downloaded["path"]
@@ -746,17 +929,16 @@ jobs:
                       f"SHA-256: {file_hash}"
                   )
 
-                  # ==========================================
+                  # ==================================
                   # MODO PRUEBA
-                  # ==========================================
+                  #
                   # True:
-                  #   vuelve a enviar las Stories actuales,
-                  #   aunque ya estén en instagram-state.json.
+                  # Reenvía Stories actuales aunque
+                  # ya estén en el estado.
                   #
                   # False:
-                  #   funcionamiento normal.
-                  # ==========================================
-
+                  # Funcionamiento normal.
+                  # ==================================
                   FORCE_RESEND = True
 
                   if (
@@ -804,7 +986,9 @@ jobs:
 
                       continue
 
-                  extension = path.suffix.lower()
+                  extension = (
+                      path.suffix.lower()
+                  )
 
                   final_path = (
                       DOWNLOAD_DIR
@@ -813,6 +997,7 @@ jobs:
                   )
 
                   if final_path.exists():
+
                       final_path.unlink()
 
                   path.rename(
@@ -834,6 +1019,7 @@ jobs:
                   )
 
               print()
+
               print(
                   f"Stories para enviar: "
                   f"{len(new_items)}"
@@ -848,6 +1034,7 @@ jobs:
                   media_type = item["type"]
 
                   print()
+
                   print(
                       f"Enviando Story de "
                       f"@{account}"
@@ -858,7 +1045,8 @@ jobs:
                   )
 
                   caption = (
-                      f"📱 Nueva Story de @{account}"
+                      f"📱 Nueva Story de "
+                      f"@{account}"
                   )
 
                   if media_type == "video":
@@ -901,9 +1089,11 @@ jobs:
                       sent_count += 1
 
                       try:
+
                           path.unlink()
 
                       except Exception:
+
                           pass
 
                   else:
@@ -918,21 +1108,30 @@ jobs:
                           "al estado."
                       )
 
+              # ==================================
+              # LIMPIAR TEMPORALES
+              # ==================================
               for path in DOWNLOAD_DIR.glob(
                   "temp_*"
               ):
 
                   try:
+
                       path.unlink()
 
                   except Exception:
+
                       pass
 
+              # ==================================
+              # GUARDAR ESTADO
+              # ==================================
               hash_list = list(
                   known_hashes
               )
 
               if len(hash_list) > 100:
+
                   hash_list = hash_list[-100:]
 
               state[account] = {
@@ -941,6 +1140,7 @@ jobs:
               }
 
               print()
+
               print(
                   f"Estado de @{account}: "
                   f"{len(hash_list)} hashes."
@@ -952,6 +1152,9 @@ jobs:
               )
 
 
+          # ==========================================
+          # MAIN
+          # ==========================================
           def main():
 
               accounts = load_accounts()
@@ -965,9 +1168,11 @@ jobs:
                   return
 
               print("=" * 50)
+
               print(
                   "MONITOR DE INSTAGRAM STORIES"
               )
+
               print("=" * 50)
 
               print(
@@ -1044,8 +1249,6 @@ jobs:
 
               print()
               print("=" * 50)
-              print("RESUMEN")
-              print("=" * 50)
 
               print(
                   f"Cuentas procesadas: "
@@ -1053,7 +1256,7 @@ jobs:
               )
 
               print(
-                  f"Stories nuevas detectadas: "
+                  f"Stories nuevas: "
                   f"{total_new}"
               )
 
@@ -1065,23 +1268,35 @@ jobs:
               print("=" * 50)
 
 
+          # ==========================================
+          # EJECUTAR EL PROGRAMA
+          # ==========================================
           if __name__ == "__main__":
               main()
+
           PY
 
-      - name: Comprobar sintaxis Python
+      # ==========================================
+      # COMPROBAR SINTAXIS
+      # ==========================================
+      - name: Comprobar sintaxis
         run: |
-          echo "Comprobando sintaxis de Python..."
           python -m py_compile monitor_instagram.py
-          echo "✅ Sintaxis Python correcta."
+          echo "✅ Sintaxis de Python correcta."
 
+      # ==========================================
+      # EJECUTAR MONITOR
+      # ==========================================
       - name: Ejecutar monitor
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python monitor_instagram.py
+          python -u monitor_instagram.py
 
+      # ==========================================
+      # GUARDAR ESTADO EN GITHUB
+      # ==========================================
       - name: Guardar estado
         run: |
           git config user.name "github-actions[bot]"
@@ -1090,14 +1305,19 @@ jobs:
           git add data/instagram-state.json
 
           if git diff --cached --quiet; then
-            echo "No hay cambios en el estado."
+            echo "ℹ️ No hay cambios en el estado."
           else
-            git commit -m "Actualizar estado de Instagram"
+            git commit -m "Actualizar estado de Instagram Stories"
             git push
+            echo "✅ Estado guardado en GitHub."
           fi
 
+      # ==========================================
+      # LIMPIAR ARCHIVOS TEMPORALES
+      # ==========================================
       - name: Limpiar archivos temporales
         if: always()
         run: |
           rm -rf downloads
           rm -f monitor_instagram.py
+          echo "🧹 Limpieza completada."

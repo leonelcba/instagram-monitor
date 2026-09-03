@@ -43,7 +43,6 @@ jobs:
           import json
           import time
           import hashlib
-          import re
           from pathlib import Path
           from urllib.parse import urlparse
 
@@ -81,14 +80,14 @@ jobs:
 
           # ------------------------------------------------------------
           # TRUE solamente durante esta prueba.
-          # Cuando comprobemos que funciona, poner FALSE.
+          # Después lo cambiaremos a FALSE.
           # ------------------------------------------------------------
 
           FORCE_RESEND = True
 
 
           # ============================================================
-          # CUENTAS
+          # CARGAR CUENTAS
           # ============================================================
 
           def load_accounts():
@@ -105,14 +104,14 @@ jobs:
 
               for account in accounts:
 
-                  account = str(account).strip()
+                  account = str(
+                      account
+                  ).strip()
 
                   if account.startswith("@"):
                       account = account[1:]
 
-                  if (
-                      "instagram.com/" in account
-                  ):
+                  if "instagram.com/" in account:
 
                       account = (
                           account
@@ -124,14 +123,20 @@ jobs:
                           .split("?", 1)[0]
                       )
 
-                  if account and account not in result:
-                      result.append(account)
+                  if (
+                      account
+                      and account not in result
+                  ):
+
+                      result.append(
+                          account
+                      )
 
               return result
 
 
           # ============================================================
-          # ESTADO
+          # CARGAR ESTADO
           # ============================================================
 
           def load_state():
@@ -149,19 +154,29 @@ jobs:
 
                       state = json.load(f)
 
-                  if isinstance(state, dict):
+                  if isinstance(
+                      state,
+                      dict
+                  ):
+
                       return state
 
               except Exception as e:
 
                   print(
-                      f"⚠️ No se pudo leer el estado: {e}"
+                      f"⚠️ Error leyendo estado: {e}"
                   )
 
               return {}
 
 
-          def save_state(state):
+          # ============================================================
+          # GUARDAR ESTADO
+          # ============================================================
+
+          def save_state(
+              state
+          ):
 
               STATE_FILE.parent.mkdir(
                   parents=True,
@@ -186,7 +201,9 @@ jobs:
           # SHA-256
           # ============================================================
 
-          def sha256_file(path):
+          def sha256_file(
+              path
+          ):
 
               sha256 = hashlib.sha256()
 
@@ -204,13 +221,15 @@ jobs:
                       if not chunk:
                           break
 
-                      sha256.update(chunk)
+                      sha256.update(
+                          chunk
+                      )
 
               return sha256.hexdigest()
 
 
           # ============================================================
-          # EXTENSIÓN
+          # DETERMINAR EXTENSIÓN
           # ============================================================
 
           def extension_from_response(
@@ -228,33 +247,43 @@ jobs:
               if content_type.startswith(
                   "video/"
               ):
+
                   return ".mp4"
 
               if content_type == "image/png":
+
                   return ".png"
 
               if content_type == "image/webp":
+
                   return ".webp"
 
               if content_type.startswith(
                   "image/"
               ):
+
                   return ".jpg"
 
-              path = urlparse(
-                  url
-              ).path.lower()
+              path = (
+                  urlparse(
+                      url
+                  ).path.lower()
+              )
 
               if ".mp4" in path:
+
                   return ".mp4"
 
               if ".webm" in path:
+
                   return ".mp4"
 
               if ".png" in path:
+
                   return ".png"
 
               if ".webp" in path:
+
                   return ".webp"
 
               return ".jpg"
@@ -282,6 +311,10 @@ jobs:
 
                   mime = "video/mp4"
 
+                  caption = (
+                      f"🎥 Story de @{account}"
+                  )
+
               else:
 
                   endpoint = (
@@ -294,13 +327,9 @@ jobs:
 
                   mime = "image/jpeg"
 
-
-              caption = (
-                  "📱 Instagram Monitor\n"
-                  f"@{account}\n"
-                  "Nueva Story"
-              )
-
+                  caption = (
+                      f"📸 Story de @{account}"
+                  )
 
               try:
 
@@ -332,7 +361,6 @@ jobs:
                           timeout=180
                       )
 
-
                   print(
                       "Telegram HTTP:",
                       response.status_code
@@ -342,10 +370,9 @@ jobs:
                       response.text
                   )
 
-
                   if not response.ok:
-                      return False
 
+                      return False
 
                   result = response.json()
 
@@ -354,11 +381,11 @@ jobs:
                       is True
                   )
 
-
               except Exception as e:
 
                   print(
-                      f"❌ Error Telegram: {e}"
+                      f"❌ Error enviando a "
+                      f"Telegram: {e}"
                   )
 
                   return False
@@ -373,7 +400,6 @@ jobs:
               account
           ):
 
-              print()
               print(
                   "Abriendo Snapgram..."
               )
@@ -388,17 +414,15 @@ jobs:
                   4000
               )
 
-
               profile_url = (
                   f"https://www.instagram.com/"
                   f"{account}/"
               )
 
-
               print(
-                  f"Perfil: {profile_url}"
+                  f"Introduciendo perfil: "
+                  f"{profile_url}"
               )
-
 
               # --------------------------------------------------------
               # BUSCAR INPUT
@@ -413,9 +437,7 @@ jobs:
                   f"{inputs.count()}"
               )
 
-
               target = None
-
 
               for i in range(
                   inputs.count()
@@ -452,7 +474,6 @@ jobs:
                           + name
                       )
 
-
                       if (
                           input_type
                           in (
@@ -477,6 +498,9 @@ jobs:
 
                       pass
 
+              # --------------------------------------------------------
+              # FALLBACK: PRIMER INPUT DE TEXTO
+              # --------------------------------------------------------
 
               if target is None:
 
@@ -509,7 +533,6 @@ jobs:
 
                           pass
 
-
               if target is None:
 
                   raise Exception(
@@ -517,21 +540,17 @@ jobs:
                       "el campo de Snapgram."
                   )
 
-
               print(
                   "Campo encontrado."
               )
-
 
               target.fill(
                   profile_url
               )
 
-
               page.wait_for_timeout(
                   500
               )
-
 
               # --------------------------------------------------------
               # BUSCAR BOTÓN DOWNLOAD
@@ -541,14 +560,11 @@ jobs:
                   "Buscando botón Download..."
               )
 
-
               clicked = False
-
 
               buttons = page.locator(
                   "button"
               )
-
 
               for i in range(
                   buttons.count()
@@ -562,7 +578,6 @@ jobs:
                           button.inner_text()
                           or ""
                       ).strip().lower()
-
 
                       if (
                           "download" in text
@@ -584,9 +599,8 @@ jobs:
 
                       pass
 
-
               # --------------------------------------------------------
-              # FALLBACK: INPUT SUBMIT
+              # FALLBACK INPUT SUBMIT
               # --------------------------------------------------------
 
               if not clicked:
@@ -594,7 +608,6 @@ jobs:
                   submits = page.locator(
                       "input[type='submit']"
                   )
-
 
                   for i in range(
                       submits.count()
@@ -609,7 +622,6 @@ jobs:
                               )
                               or ""
                           ).lower()
-
 
                           if (
                               "download" in value
@@ -626,7 +638,6 @@ jobs:
 
                           pass
 
-
               if not clicked:
 
                   raise Exception(
@@ -634,11 +645,9 @@ jobs:
                       "el botón Download."
                   )
 
-
               print(
                   "Download pulsado."
               )
-
 
               # --------------------------------------------------------
               # ESPERAR RESULTADOS
@@ -647,7 +656,6 @@ jobs:
               print(
                   "Esperando Stories..."
               )
-
 
               for intento in range(
                   1,
@@ -658,41 +666,41 @@ jobs:
                       2000
                   )
 
-
-                  media_count = page.locator(
-                      "video[src], "
-                      "img[src]"
+                  videos = page.locator(
+                      "video[src]"
                   ).count()
 
-
                   print(
-                      f"Espera "
-                      f"{intento}/15 | "
-                      f"media={media_count}"
+                      f"Espera {intento}/15 | "
+                      f"videos={videos}"
                   )
 
+                  if videos > 0:
 
-                  if media_count > 0:
+                      print(
+                          "✅ Aparecieron "
+                          "videos."
+                      )
 
                       return True
 
-
               print(
-                  "⚠️ No apareció multimedia "
+                  "⚠️ No aparecieron videos "
                   "inmediatamente."
               )
-
 
               return True
 
 
           # ============================================================
-          # OBTENER MEDIA DE STORIES
+          # OBTENER STORIES
           # ============================================================
 
-          def collect_media(page):
+          def collect_media(
+              page
+          ):
 
-              return page.evaluate(
+              media = page.evaluate(
                   """
                   () => {
 
@@ -701,198 +709,182 @@ jobs:
 
 
                       // =================================================
-                      // BUSCAR TARJETAS QUE CONTENGAN DOWNLOAD
+                      // VIDEOS
                       // =================================================
 
-                      const downloadElements =
+                      const videos =
                           Array.from(
                               document.querySelectorAll(
-                                  'a[href], button'
+                                  "video[src]"
                               )
-                          ).filter(el => {
-
-                              const text =
-                                  (
-                                      el.innerText ||
-                                      el.textContent ||
-                                      ""
-                                  ).trim().toLowerCase();
-
-                              const href =
-                                  el.getAttribute(
-                                      "href"
-                                  ) || "";
-
-                              return (
-                                  text.includes(
-                                      "download"
-                                  )
-                                  ||
-                                  text.includes(
-                                      "descargar"
-                                  )
-                                  ||
-                                  href.includes(
-                                      "download"
-                                  )
-                              );
-
-                          });
+                          );
 
 
                       for (
-                          const downloadElement
-                          of downloadElements
+                          const video
+                          of videos
                       ) {
 
-
-                          // ------------------------------------------------
-                          // Subir por los ancestros buscando una tarjeta
-                          // que contenga exactamente el contenido multimedia.
-                          // ------------------------------------------------
-
-                          let container =
-                              downloadElement;
-
-
-                          let mediaElement = null;
-
-
-                          for (
-                              let level = 0;
-                              level < 8 &&
-                              container;
-                              level++
-                          ) {
-
-
-                              const videos =
-                                  Array.from(
-                                      container.querySelectorAll(
-                                          "video[src]"
-                                      )
-                                  );
-
-
-                              if (
-                                  videos.length > 0
-                              ) {
-
-                                  mediaElement =
-                                      videos[0];
-
-                                  break;
-
-                              }
-
-
-                              const images =
-                                  Array.from(
-                                      container.querySelectorAll(
-                                          "img[src]"
-                                      )
-                                  ).filter(img => {
-
-                                      const src =
-                                          img.getAttribute(
-                                              "src"
-                                          ) || "";
-
-                                      const cls =
-                                          (
-                                              img.className
-                                              || ""
-                                          ).toString()
-                                          .toLowerCase();
-
-                                      const alt =
-                                          (
-                                              img.getAttribute(
-                                                  "alt"
-                                              )
-                                              || ""
-                                          ).toLowerCase();
-
-
-                                      // No aceptar logos,
-                                      // avatares ni iconos.
-
-                                      if (
-                                          cls.includes(
-                                              "avatar"
-                                          )
-                                          ||
-                                          cls.includes(
-                                              "logo"
-                                          )
-                                          ||
-                                          alt.includes(
-                                              "logo"
-                                          )
-                                      ) {
-
-                                          return false;
-
-                                      }
-
-
-                                      return (
-                                          src.startsWith(
-                                              "http"
-                                          )
-                                      );
-
-                                  });
-
-
-                              if (
-                                  images.length > 0
-                              ) {
-
-                                  mediaElement =
-                                      images[0];
-
-                                  break;
-
-                              }
-
-
-                              container =
-                                  container.parentElement;
-
-                          }
-
-
-                          if (
-                              !mediaElement
-                          ) {
-
-                              continue;
-
-                          }
-
-
-                          const tag =
-                              mediaElement.tagName
-                              .toLowerCase();
-
-
-                          let url =
-                              mediaElement.getAttribute(
+                          const src =
+                              video.getAttribute(
                                   "src"
                               )
                               || "";
 
 
+                          if (!src) {
+                              continue;
+                          }
+
+
                           if (
-                              !url
-                              ||
-                              url.startsWith(
+                              src.startsWith(
                                   "blob:"
                               )
                               ||
-                              url.startsWith(
+                              src.startsWith(
                                   "data:"
+                              )
+                          ) {
+                              continue;
+                          }
+
+
+                          if (
+                              !src.startsWith(
+                                  "http"
+                              )
+                          ) {
+                              continue;
+                          }
+
+
+                          const key =
+                              "video|" + src;
+
+
+                          if (
+                              seen.has(key)
+                          ) {
+                              continue;
+                          }
+
+
+                          seen.add(key);
+
+
+                          result.push({
+
+                              type: "video",
+
+                              url: src,
+
+                              label:
+                                  video.getAttribute(
+                                      "aria-label"
+                                  )
+                                  || ""
+
+                          });
+
+                      }
+
+
+                      // =================================================
+                      // FOTOS
+                      // =================================================
+
+                      const images =
+                          Array.from(
+                              document.querySelectorAll(
+                                  "img[src]"
+                              )
+                          );
+
+
+                      for (
+                          const img
+                          of images
+                      ) {
+
+                          const src =
+                              img.getAttribute(
+                                  "src"
+                              )
+                              || "";
+
+
+                          if (!src) {
+                              continue;
+                          }
+
+
+                          if (
+                              src.startsWith(
+                                  "blob:"
+                              )
+                              ||
+                              src.startsWith(
+                                  "data:"
+                              )
+                          ) {
+                              continue;
+                          }
+
+
+                          if (
+                              !src.startsWith(
+                                  "http"
+                              )
+                          ) {
+                              continue;
+                          }
+
+
+                          const className =
+                              (
+                                  img.className
+                                  || ""
+                              ).toString()
+                              .toLowerCase();
+
+
+                          const alt =
+                              (
+                                  img.getAttribute(
+                                      "alt"
+                                  )
+                                  || ""
+                              ).toLowerCase();
+
+
+                          // ------------------------------------------------
+                          // IGNORAR ELEMENTOS DE INTERFAZ
+                          // ------------------------------------------------
+
+                          if (
+                              className.includes(
+                                  "avatar"
+                              )
+                              ||
+                              className.includes(
+                                  "logo"
+                              )
+                              ||
+                              className.includes(
+                                  "icon"
+                              )
+                              ||
+                              alt.includes(
+                                  "avatar"
+                              )
+                              ||
+                              alt.includes(
+                                  "profile"
+                              )
+                              ||
+                              alt.includes(
+                                  "logo"
                               )
                           ) {
 
@@ -902,82 +894,43 @@ jobs:
 
 
                           // ------------------------------------------------
-                          // Ignorar imágenes que claramente sean
-                          // elementos de interfaz.
+                          // SI ESTA IMAGEN ESTÁ DENTRO DE UNA TARJETA
+                          // QUE CONTIENE UN VIDEO, ES EL PREVIEW DEL VIDEO.
                           // ------------------------------------------------
 
-                          if (
-                              tag === "img"
+                          let node = img;
+
+                          let containsVideo = false;
+
+
+                          for (
+                              let i = 0;
+                              i < 10 && node;
+                              i++
                           ) {
 
-                              const cls =
-                                  (
-                                      mediaElement.className
-                                      || ""
-                                  ).toString()
-                                  .toLowerCase();
-
-
-                              const alt =
-                                  (
-                                      mediaElement.getAttribute(
-                                          "alt"
-                                      )
-                                      || ""
-                                  ).toLowerCase();
-
-
                               if (
-                                  cls.includes(
-                                      "avatar"
-                                  )
-                                  ||
-                                  cls.includes(
-                                      "logo"
-                                  )
-                                  ||
-                                  cls.includes(
-                                      "icon"
-                                  )
-                                  ||
-                                  alt.includes(
-                                      "profile"
-                                  )
-                                  ||
-                                  alt.includes(
-                                      "avatar"
-                                  )
-                                  ||
-                                  alt.includes(
-                                      "logo"
+                                  node.querySelector &&
+                                  node.querySelector(
+                                      "video[src]"
                                   )
                               ) {
 
-                                  continue;
+                                  containsVideo = true;
+
+                                  break;
 
                               }
+
+
+                              node =
+                                  node.parentElement;
 
                           }
 
 
-                          const type =
-                              tag === "video"
-                              ? "video"
-                              : "photo";
-
-
-                          // ------------------------------------------------
-                          // Para videos exigimos una URL real.
-                          // ------------------------------------------------
-
                           if (
-                              type === "video"
-                              &&
-                              (
-                                  !url.startsWith(
-                                      "http"
-                                  )
-                              )
+                              containsVideo
                           ) {
 
                               continue;
@@ -986,7 +939,7 @@ jobs:
 
 
                           const key =
-                              type + "|" + url;
+                              "photo|" + src;
 
 
                           if (
@@ -1003,22 +956,15 @@ jobs:
 
                           result.push({
 
-                              type: type,
+                              type: "photo",
 
-                              url: url,
+                              url: src,
 
                               label:
-                                  mediaElement
-                                  .getAttribute(
-                                      "aria-label"
-                                  )
-                                  ||
-                                  mediaElement
-                                  .getAttribute(
+                                  img.getAttribute(
                                       "alt"
                                   )
-                                  ||
-                                  ""
+                                  || ""
 
                           });
 
@@ -1031,12 +977,43 @@ jobs:
                   """
               )
 
+              videos = [
+                  item
+                  for item in media
+                  if item["type"] == "video"
+              ]
+
+              photos = [
+                  item
+                  for item in media
+                  if item["type"] == "photo"
+              ]
+
+              print(
+                  f"Multimedia encontrada: "
+                  f"{len(media)}"
+              )
+
+              print(
+                  f"  🎥 Videos: "
+                  f"{len(videos)}"
+              )
+
+              print(
+                  f"  📸 Fotos: "
+                  f"{len(photos)}"
+              )
+
+              return media
+
 
           # ============================================================
           # SCROLL INTERNO
           # ============================================================
 
-          def scroll_internal(page):
+          def scroll_internal(
+              page
+          ):
 
               return page.evaluate(
                   """
@@ -1044,7 +1021,9 @@ jobs:
 
                       const elements =
                           Array.from(
-                              document.querySelectorAll("*")
+                              document.querySelectorAll(
+                                  "*"
+                              )
                           );
 
 
@@ -1144,11 +1123,14 @@ jobs:
                   exist_ok=True
               )
 
-
               print(
-                  f"⬇️ Descargando media {index}..."
+                  f"⬇️ Descargando "
+                  f"{index}..."
               )
 
+              print(
+                  url[:250]
+              )
 
               try:
 
@@ -1172,30 +1154,24 @@ jobs:
 
                   )
 
-
                   print(
                       "HTTP:",
                       response.status_code
                   )
 
-
                   response.raise_for_status()
 
-
                   content_type = (
-                      response.headers
-                      .get(
+                      response.headers.get(
                           "Content-Type",
                           ""
                       )
                   )
 
-
                   print(
                       "Content-Type:",
                       content_type
                   )
-
 
                   extension = (
                       extension_from_response(
@@ -1204,22 +1180,21 @@ jobs:
                       )
                   )
 
-
-                  temp_path = (
-                      DOWNLOAD_DIR
-                      /
-                      (
-                          f"temp_"
-                          f"{account}_"
-                          f"{index}_"
-                          f"{int(time.time() * 1000)}"
-                          f"{extension}"
-                      )
+                  filename = (
+                      f"{account}_"
+                      f"{index}_"
+                      f"{int(time.time() * 1000)}"
+                      f"{extension}"
                   )
 
+                  path = (
+                      DOWNLOAD_DIR
+                      /
+                      filename
+                  )
 
                   with open(
-                      temp_path,
+                      path,
                       "wb"
                   ) as f:
 
@@ -1233,31 +1208,28 @@ jobs:
                           if chunk:
                               f.write(chunk)
 
-
-                  size = temp_path.stat().st_size
-
+                  size = path.stat().st_size
 
                   print(
-                      "Tamaño:",
-                      size,
-                      "bytes"
+                      f"Archivo: {path}"
                   )
 
+                  print(
+                      f"Tamaño: {size} bytes"
+                  )
 
                   if size == 0:
 
-                      temp_path.unlink(
+                      path.unlink(
                           missing_ok=True
                       )
 
                       return None, None
 
-
                   return (
-                      temp_path,
+                      path,
                       content_type
                   )
-
 
               except Exception as e:
 
@@ -1294,7 +1266,8 @@ jobs:
 
 
               account_state = state.get(
-                  account
+                  account,
+                  {}
               )
 
 
@@ -1323,15 +1296,10 @@ jobs:
                       )
                   )
 
-
               elif isinstance(
                   account_state,
                   list
               ):
-
-                  # Estado antiguo.
-                  # Se conserva la información existente
-                  # y se considera inicializado.
 
                   known_hashes = set(
                       account_state
@@ -1341,13 +1309,13 @@ jobs:
 
 
               print(
-                  "Hashes conocidos:",
-                  len(known_hashes)
+                  f"Hashes conocidos: "
+                  f"{len(known_hashes)}"
               )
 
               print(
-                  "Inicializada:",
-                  initialized
+                  f"Inicializada: "
+                  f"{initialized}"
               )
 
 
@@ -1384,36 +1352,17 @@ jobs:
                       return 0
 
 
+                  page.wait_for_timeout(
+                      2000
+                  )
+
+
                   # ------------------------------------------------------
                   # COLECCIÓN INICIAL
                   # ------------------------------------------------------
 
                   media = collect_media(
                       page
-                  )
-
-
-                  print(
-                      f"Media inicial: "
-                      f"{len(media)}"
-                  )
-
-
-                  print(
-                      f"  🎥 Videos: "
-                      f"{sum("
-                          "1 for x in media "
-                          "if x['type'] == 'video'"
-                      )}"
-                  )
-
-
-                  print(
-                      f"  📸 Fotos: "
-                      f"{sum("
-                          "1 for x in media "
-                          "if x['type'] == 'photo'"
-                      )}"
                   )
 
 
@@ -1551,23 +1500,27 @@ jobs:
                   )
 
 
-                  print(
-                      "Videos:",
-                      sum(
-                          1
-                          for x in media
-                          if x["type"] == "video"
-                      )
+                  video_count = sum(
+                      1
+                      for x in media
+                      if x["type"] == "video"
+                  )
+
+
+                  photo_count = sum(
+                      1
+                      for x in media
+                      if x["type"] == "photo"
                   )
 
 
                   print(
-                      "Fotos:",
-                      sum(
-                          1
-                          for x in media
-                          if x["type"] == "photo"
-                      )
+                      f"Videos: {video_count}"
+                  )
+
+
+                  print(
+                      f"Fotos: {photo_count}"
                   )
 
 
@@ -1585,7 +1538,7 @@ jobs:
 
 
                   # ------------------------------------------------------
-                  # PROCESAR CADA STORY
+                  # DESCARGAR Y PROCESAR STORIES
                   # ------------------------------------------------------
 
                   for index, item in enumerate(
@@ -1601,14 +1554,8 @@ jobs:
 
 
                       print(
-                          "Tipo:",
-                          item["type"]
-                      )
-
-
-                      print(
-                          "URL:",
-                          item["url"][:180]
+                          f"Tipo: "
+                          f"{item['type']}"
                       )
 
 
@@ -1632,8 +1579,8 @@ jobs:
 
 
                       print(
-                          "SHA-256:",
-                          file_hash
+                          f"SHA-256: "
+                          f"{file_hash}"
                       )
 
 
@@ -1648,8 +1595,8 @@ jobs:
                           )
 
                           print(
-                              "Se registra la Story "
-                              "sin enviarla."
+                              "Se registra la "
+                              "Story sin enviarla."
                           )
 
 
@@ -1698,7 +1645,7 @@ jobs:
 
 
                       # --------------------------------------------------
-                      # TIPO REAL SEGÚN ARCHIVO
+                      # DETERMINAR TIPO REAL
                       # --------------------------------------------------
 
                       actual_type = (
@@ -1718,8 +1665,20 @@ jobs:
 
 
                       # --------------------------------------------------
-                      # ENVIAR
+                      # ENVIAR A TELEGRAM
                       # --------------------------------------------------
+
+                      print(
+                          f"Enviando Story de "
+                          f"@{account}"
+                      )
+
+
+                      print(
+                          f"Tipo detectado: "
+                          f"{actual_type}"
+                      )
+
 
                       success = send_telegram(
 
@@ -1735,7 +1694,8 @@ jobs:
                       if success:
 
                           print(
-                              "✅ Story enviada."
+                              "✅ Telegram confirmó "
+                              "el envío."
                           )
 
 
@@ -1750,7 +1710,7 @@ jobs:
                       else:
 
                           print(
-                              "❌ Telegram no confirmó "
+                              "❌ Telegram NO confirmó "
                               "el envío."
                           )
 
@@ -1777,7 +1737,6 @@ jobs:
                   }
 
 
-                  print()
                   print(
                       f"Estado de @{account}: "
                       f"{len(known_hashes)} hashes."
@@ -1830,8 +1789,8 @@ jobs:
 
 
               print(
-                  "Cuentas:",
-                  len(accounts)
+                  f"Cuentas configuradas: "
+                  f"{len(accounts)}"
               )
 
 
@@ -1901,7 +1860,6 @@ jobs:
                               )
                           )
 
-
                       except Exception as e:
 
                           print()
@@ -1937,18 +1895,18 @@ jobs:
               )
 
               print(
-                  "Cuentas procesadas:",
-                  len(accounts)
+                  f"Cuentas procesadas: "
+                  f"{len(accounts)}"
               )
 
               print(
-                  "Stories enviadas:",
-                  total_sent
+                  f"Stories enviadas: "
+                  f"{total_sent}"
               )
 
               print(
-                  "Estado:",
-                  STATE_FILE
+                  f"Estado guardado: "
+                  f"{STATE_FILE}"
               )
 
               print(
@@ -2016,7 +1974,7 @@ jobs:
 
 
       # ============================================================
-      # 7. LIMPIAR
+      # 7. LIMPIAR ARCHIVOS TEMPORALES
       # ============================================================
 
       - name: Limpiar archivos temporales

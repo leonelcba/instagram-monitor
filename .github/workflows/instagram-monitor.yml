@@ -73,7 +73,7 @@ jobs:
               print(page.title())
 
               print("URL:")
-              print(page.url())
+              print(page.url)
 
               print()
 
@@ -125,6 +125,7 @@ jobs:
                       )
 
                   except Exception as e:
+
                       print(
                           "Error:",
                           e
@@ -170,12 +171,13 @@ jobs:
                       )
 
                   except:
+
                       pass
 
               print()
 
               # ==========================================================
-              # 4. IDENTIFICAR EL INPUT REAL
+              # 4. IDENTIFICAR INPUT REAL
               # ==========================================================
 
               print("=" * 80)
@@ -235,6 +237,7 @@ jobs:
                           break
 
                   except:
+
                       pass
 
               if input_box is None:
@@ -248,13 +251,15 @@ jobs:
                   raise SystemExit(1)
 
               # ==========================================================
-              # 5. FORMULARIO DEL INPUT
+              # 5. FORMULARIO ASOCIADO
               # ==========================================================
 
               print()
               print("=" * 80)
               print("5. FORMULARIO ASOCIADO AL INPUT")
               print("=" * 80)
+
+              form = None
 
               try:
 
@@ -282,6 +287,16 @@ jobs:
                       e
                   )
 
+              if form is None or form.count() == 0:
+
+                  print(
+                      "❌ El input no pertenece a ningún form."
+                  )
+
+                  browser.close()
+
+                  raise SystemExit(1)
+
               # ==========================================================
               # 6. INTRODUCIR CUENTA
               # ==========================================================
@@ -307,8 +322,13 @@ jobs:
 
               page.wait_for_timeout(1000)
 
+              print(
+                  "Valor actual:",
+                  input_box.input_value()
+              )
+
               # ==========================================================
-              # 7. BOTONES DENTRO DEL FORM
+              # 7. BOTONES DEL FORM
               # ==========================================================
 
               print()
@@ -316,78 +336,69 @@ jobs:
               print("7. BOTONES DEL FORMULARIO")
               print("=" * 80)
 
-              try:
+              buttons = form.locator(
+                  "button, input[type='submit'], a"
+              )
 
-                  buttons = form.locator(
-                      "button, input[type='submit'], a"
-                  )
+              print(
+                  "Cantidad:",
+                  buttons.count()
+              )
 
-                  print(
-                      "Cantidad:",
-                      buttons.count()
-                  )
+              for i in range(buttons.count()):
 
-                  for i in range(buttons.count()):
+                  el = buttons.nth(i)
 
-                      el = buttons.nth(i)
+                  try:
 
-                      try:
+                      print()
+                      print(
+                          f"BOTÓN #{i}"
+                      )
 
-                          print()
-                          print(
-                              f"BOTÓN #{i}"
+                      print(
+                          "tag:",
+                          el.evaluate(
+                              "el => el.tagName"
                           )
+                      )
 
-                          print(
-                              "tag:",
-                              el.evaluate(
-                                  "el => el.tagName"
-                              )
-                          )
+                      print(
+                          "text:",
+                          el.inner_text()
+                      )
 
-                          print(
-                              "text:",
-                              el.inner_text()
-                          )
+                      print(
+                          "type:",
+                          el.get_attribute("type")
+                      )
 
-                          print(
-                              "type:",
-                              el.get_attribute("type")
-                          )
+                      print(
+                          "class:",
+                          el.get_attribute("class")
+                      )
 
-                          print(
-                              "class:",
-                              el.get_attribute("class")
-                          )
+                      print(
+                          "href:",
+                          el.get_attribute("href")
+                      )
 
-                          print(
-                              "href:",
-                              el.get_attribute("href")
-                          )
+                      print(
+                          "HTML:",
+                          el.evaluate(
+                              "el => el.outerHTML"
+                          )[:3000]
+                      )
 
-                          print(
-                              "HTML:",
-                              el.evaluate(
-                                  "el => el.outerHTML"
-                              )[:2000]
-                          )
+                  except Exception as e:
 
-                      except Exception as e:
-
-                          print(
-                              "Error:",
-                              e
-                          )
-
-              except Exception as e:
-
-                  print(
-                      "Error buscando botones:",
-                      e
-                  )
+                      print(
+                          "Error:",
+                          e
+                      )
 
               # ==========================================================
-              # 8. CLICK EN EL SUBMIT DEL FORM
+              # 8. ENVIAR FORMULARIO
               # ==========================================================
 
               print()
@@ -397,6 +408,10 @@ jobs:
 
               clicked = False
 
+              # ----------------------------------------------------------
+              # Primero intentar submit real
+              # ----------------------------------------------------------
+
               try:
 
                   submit = form.locator(
@@ -404,16 +419,33 @@ jobs:
                       "input[type='submit']"
                   )
 
+                  print(
+                      "Submits encontrados:",
+                      submit.count()
+                  )
+
                   if submit.count():
 
                       print(
-                          "Encontrado submit real."
+                          "Usando submit real del formulario."
                       )
 
-                      print(
-                          "Texto:",
-                          submit.first.inner_text()
-                      )
+                      for i in range(
+                          submit.count()
+                      ):
+
+                          try:
+
+                              print(
+                                  f"Submit #{i}:",
+                                  submit.nth(i).evaluate(
+                                      "el => el.outerHTML"
+                                  )[:2000]
+                              )
+
+                          except:
+
+                              pass
 
                       submit.first.click()
 
@@ -426,8 +458,9 @@ jobs:
                       e
                   )
 
-              # Si no hay submit explícito,
-              # buscar botón Descargar SOLO dentro del form.
+              # ----------------------------------------------------------
+              # Si no existe submit, buscar Descargar dentro del form
+              # ----------------------------------------------------------
 
               if not clicked:
 
@@ -444,6 +477,10 @@ jobs:
                       )
 
                       if descargar.count():
+
+                          print(
+                              "Usando Descargar del formulario."
+                          )
 
                           descargar.first.click()
 
@@ -483,8 +520,9 @@ jobs:
 
                   page.wait_for_timeout(2000)
 
+                  print()
                   print(
-                      f"Espera {i}/10"
+                      f"--- Espera {i}/10 ---"
                   )
 
                   print(
@@ -503,6 +541,11 @@ jobs:
                   )
 
                   print(
+                      "SOURCE:",
+                      page.locator("source").count()
+                  )
+
+                  print(
                       "A:",
                       page.locator("a").count()
                   )
@@ -516,9 +559,9 @@ jobs:
               print("10. ELEMENTOS DEL RESULTADO")
               print("=" * 80)
 
-              # Buscar texto relacionado con la cuenta
-              texto = page.locator(
-                  f"text={ACCOUNT}"
+              texto = page.get_by_text(
+                  ACCOUNT,
+                  exact=False
               )
 
               print(
@@ -526,9 +569,47 @@ jobs:
                   texto.count()
               )
 
+              for i in range(
+                  min(texto.count(), 20)
+              ):
+
+                  try:
+
+                      el = texto.nth(i)
+
+                      print()
+                      print(
+                          f"ELEMENTO CUENTA #{i}"
+                      )
+
+                      print(
+                          "tag:",
+                          el.evaluate(
+                              "el => el.tagName"
+                          )
+                      )
+
+                      print(
+                          "text:",
+                          el.inner_text()[:1000]
+                      )
+
+                      print(
+                          "HTML:"
+                      )
+
+                      print(
+                          el.evaluate(
+                              "el => el.outerHTML"
+                          )[:5000]
+                      )
+
+                  except:
+
+                      pass
+
               # ==========================================================
-              # 11. ANALIZAR TODOS LOS CONTENEDORES QUE TENGAN
-              #     'Descargar' Y MEDIA
+              # 11. CONTENEDORES DE RESULTADOS
               # ==========================================================
 
               print()
@@ -542,8 +623,15 @@ jobs:
 
               encontrados = 0
 
+              total_candidates = candidates.count()
+
+              print(
+                  "Elementos candidatos:",
+                  total_candidates
+              )
+
               for i in range(
-                  min(candidates.count(), 1000)
+                  min(total_candidates, 1500)
               ):
 
                   el = candidates.nth(i)
@@ -558,6 +646,7 @@ jobs:
                       )
 
                       if "Descargar" not in text:
+
                           continue
 
                       imgs = el.locator(
@@ -568,6 +657,10 @@ jobs:
                           "video"
                       ).count()
 
+                      sources = el.locator(
+                          "source"
+                      ).count()
+
                       links = el.locator(
                           "a[href]"
                       ).count()
@@ -575,6 +668,7 @@ jobs:
                       if (
                           imgs > 0
                           or videos > 0
+                          or sources > 0
                           or links > 0
                       ):
 
@@ -587,7 +681,7 @@ jobs:
 
                           print(
                               "Texto:",
-                              text[:500]
+                              text[:1000]
                           )
 
                           print(
@@ -598,6 +692,11 @@ jobs:
                           print(
                               "VIDEO:",
                               videos
+                          )
+
+                          print(
+                              "SOURCE:",
+                              sources
                           )
 
                           print(
@@ -612,13 +711,15 @@ jobs:
                           print(
                               el.evaluate(
                                   "el => el.outerHTML"
-                              )[:5000]
+                              )[:8000]
                           )
 
                           if encontrados >= 20:
+
                               break
 
                   except:
+
                       pass
 
               print()
@@ -628,7 +729,7 @@ jobs:
               )
 
               # ==========================================================
-              # 12. MEDIA DIRECTA
+              # 12. BUSCAR MEDIA
               # ==========================================================
 
               print()
@@ -636,12 +737,14 @@ jobs:
               print("12. MEDIA EN LA PÁGINA")
               print("=" * 80)
 
-              for selector in [
+              selectors = [
                   "img",
                   "video",
                   "source",
                   "a[href]"
-              ]:
+              ]
+
+              for selector in selectors:
 
                   locator = page.locator(
                       selector
@@ -655,7 +758,7 @@ jobs:
                   )
 
                   for i in range(
-                      min(locator.count(), 100)
+                      min(locator.count(), 200)
                   ):
 
                       el = locator.nth(i)
@@ -682,24 +785,89 @@ jobs:
                               in serialized
                           ):
 
+                              print()
                               print(
                                   f"{selector} #{i}"
                               )
 
                               print(
-                                  serialized[:3000]
+                                  serialized[:5000]
                               )
 
                       except:
+
                           pass
 
               # ==========================================================
-              # 13. TEXTO VISIBLE
+              # 13. BOTONES DESCARGAR
               # ==========================================================
 
               print()
               print("=" * 80)
-              print("13. TEXTO VISIBLE")
+              print("13. TODOS LOS BOTONES 'DESCARGAR'")
+              print("=" * 80)
+
+              descargar_all = page.get_by_text(
+                  "Descargar",
+                  exact=True
+              )
+
+              print(
+                  "Cantidad:",
+                  descargar_all.count()
+              )
+
+              for i in range(
+                  min(descargar_all.count(), 50)
+              ):
+
+                  try:
+
+                      el = descargar_all.nth(i)
+
+                      print()
+                      print(
+                          f"DESCARGAR #{i}"
+                      )
+
+                      print(
+                          "tag:",
+                          el.evaluate(
+                              "el => el.tagName"
+                          )
+                      )
+
+                      print(
+                          "class:",
+                          el.get_attribute("class")
+                      )
+
+                      print(
+                          "href:",
+                          el.get_attribute("href")
+                      )
+
+                      print(
+                          "HTML:"
+                      )
+
+                      print(
+                          el.evaluate(
+                              "el => el.outerHTML"
+                          )[:5000]
+                      )
+
+                  except:
+
+                      pass
+
+              # ==========================================================
+              # 14. TEXTO VISIBLE
+              # ==========================================================
+
+              print()
+              print("=" * 80)
+              print("14. TEXTO VISIBLE")
               print("=" * 80)
 
               body_text = page.locator(
@@ -707,16 +875,16 @@ jobs:
               ).inner_text()
 
               print(
-                  body_text[:15000]
+                  body_text[:20000]
               )
 
               # ==========================================================
-              # 14. GUARDAR HTML
+              # 15. GUARDAR HTML Y SCREENSHOT
               # ==========================================================
 
               print()
               print("=" * 80)
-              print("14. GUARDANDO HTML")
+              print("15. GUARDANDO HTML Y SCREENSHOT")
               print("=" * 80)
 
               with open(

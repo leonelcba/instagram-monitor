@@ -270,17 +270,6 @@ jobs:
 
 
           def collect_media(page):
-              """
-              Encuentra las Stories mediante la imagen
-              media-content__image y busca el botón Descargar
-              correspondiente dentro de la misma tarjeta.
-
-              Esto evita:
-              - fotos de perfil
-              - elementos ajenos a Stories
-              - duplicados entre preview y Story
-              """
-
               result = page.evaluate(
                   """
                   () => {
@@ -353,11 +342,6 @@ jobs:
 
 
           def scroll_internal_containers(page):
-              """
-              SSSInstagram utiliza un contenedor interno
-              con scroll para las Stories.
-              """
-
               total_rounds = 20
               previous_count = 0
               stable_rounds = 0
@@ -716,9 +700,6 @@ jobs:
                           f"{preview_url[:180]}"
                       )
 
-                  # IMPORTANTE:
-                  # usamos el enlace Descargar,
-                  # no la imagen de preview.
                   media_url = download_url
 
                   if not media_url:
@@ -749,22 +730,44 @@ jobs:
                       f"SHA-256: {file_hash}"
                   )
 
-              # PRUEBA: ignorar temporalmente los hashes existentes
-              # para volver a enviar las Stories actuales.
-              FORCE_RESEND = True
+                  # ==========================================
+                  # MODO PRUEBA
+                  # ==========================================
+                  # True:
+                  #   vuelve a enviar las Stories actuales,
+                  #   aunque ya estén en instagram-state.json.
+                  #
+                  # False:
+                  #   funcionamiento normal: solo envía Stories
+                  #   que todavía no estén registradas.
+                  # ==========================================
 
-              if file_hash in known_hashes and not FORCE_RESEND:
-                  print(
-                      "⏭️ Esta Story ya fue enviada."
-                  )
+                  FORCE_RESEND = True
 
-                  path.unlink(
-                      missing_ok=True
-                  )
+                  if file_hash in known_hashes:
 
-                  continue
+                      if FORCE_RESEND:
+
+                          print(
+                              "🔄 MODO PRUEBA: "
+                              "esta Story ya existe en el estado, "
+                              "pero será reenviada."
+                          )
+
+                      else:
+
+                          print(
+                              "⏭️ Esta Story ya fue enviada."
+                          )
+
+                          path.unlink(
+                              missing_ok=True
+                          )
+
+                          continue
 
                   if not initialized:
+
                       print(
                           "🆕 Cuenta nueva: "
                           "Story usada como referencia, "
@@ -789,6 +792,7 @@ jobs:
                   )
 
                   if final_path.exists():
+
                       final_path.unlink()
 
                   path.rename(
@@ -796,7 +800,7 @@ jobs:
                   )
 
                   print(
-                      f"🆕 Story nueva: "
+                      f"🆕 Story preparada: "
                       f"{final_path}"
                   )
 
@@ -870,8 +874,6 @@ jobs:
                           "el envío."
                       )
 
-                      # Solo agregamos el hash al estado
-                      # DESPUÉS de enviarlo correctamente.
                       known_hashes.add(
                           file_hash
                       )
@@ -895,16 +897,15 @@ jobs:
                           "al estado."
                       )
 
-              # Eliminar cualquier temporal restante.
               for path in DOWNLOAD_DIR.glob(
                   "temp_*"
               ):
+
                   try:
                       path.unlink()
                   except Exception:
                       pass
 
-              # Mantener como máximo 100 hashes.
               hash_list = list(
                   known_hashes
               )
@@ -930,12 +931,15 @@ jobs:
 
 
           def main():
+
               accounts = load_accounts()
 
               if not accounts:
+
                   print(
                       "❌ No hay cuentas configuradas."
                   )
+
                   return
 
               print("=" * 50)
@@ -950,6 +954,7 @@ jobs:
               )
 
               for account in accounts:
+
                   print(
                       f"  - @{account}"
                   )
@@ -1008,6 +1013,7 @@ jobs:
                           )
 
                           import traceback
+
                           traceback.print_exc()
 
                   browser.close()

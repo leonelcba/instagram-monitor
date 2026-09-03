@@ -1,0 +1,235 @@
+name: Test Snapgram API
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-api:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Probar API de Snapgram
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import json
+          import random
+          import string
+          import time
+          import urllib.parse
+          import urllib.request
+          import urllib.error
+
+          ACCOUNTS = [
+              "zero.design.oficial",
+              "carenballen",
+              "laderechadiario"
+          ]
+
+          API_URL = "https://api.sssgram.com/st-tik/ins/dl"
+
+          USER_AGENT = (
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+              "AppleWebKit/537.36 (KHTML, like Gecko) "
+              "Chrome/139.0.0.0 Safari/537.36"
+          )
+
+          def generate_session_id():
+              chars = string.ascii_letters + string.digits
+              random_part = ''.join(random.choice(chars) for _ in range(10))
+              timestamp = int(time.time() * 1000)
+              return f"common_{random_part}_{timestamp}"
+
+          def request_api(username):
+              story_url = f"https://www.instagram.com/stories/{username}/"
+              session_id = generate_session_id()
+
+              params = {
+                  "url": story_url,
+                  "sessionid": session_id
+              }
+
+              full_url = API_URL + "?" + urllib.parse.urlencode(params)
+
+              print()
+              print("=" * 70)
+              print(f"CUENTA: @{username}")
+              print(f"STORY URL: {story_url}")
+              print(f"SESSION ID: {session_id}")
+              print("=" * 70)
+
+              headers = {
+                  "User-Agent": USER_AGENT,
+                  "Accept": "application/json, text/plain, */*",
+                  "Referer": "https://www.snapgram.io/",
+                  "Origin": "https://www.snapgram.io"
+              }
+
+              request = urllib.request.Request(
+                  full_url,
+                  headers=headers,
+                  method="GET"
+              )
+
+              try:
+                  with urllib.request.urlopen(request, timeout=40) as response:
+                      status = response.status
+                      body = response.read().decode("utf-8", errors="replace")
+
+                  print(f"HTTP: {status}")
+                  print(f"Respuesta recibida: {len(body)} bytes")
+
+              except urllib.error.HTTPError as e:
+                  body = e.read().decode("utf-8", errors="replace")
+                  print(f"❌ HTTP ERROR: {e.code}")
+                  print(body[:3000])
+                  return
+
+              except Exception as e:
+                  print(f"❌ ERROR DE CONEXIÓN: {e}")
+                  return
+
+              try:
+                  data = json.loads(body)
+              except Exception:
+                  print("❌ La respuesta no es JSON válido.")
+                  print(body[:5000])
+                  return
+
+              print()
+              print("JSON recibido correctamente.")
+
+              code = data.get("code")
+              msg = data.get("msg")
+
+              print(f"code: {code}")
+              print(f"msg: {msg}")
+
+              result = data.get("result")
+
+              if not isinstance(result, dict):
+                  print("❌ No existe un objeto 'result' válido.")
+                  print(json.dumps(data, indent=2, ensure_ascii=False)[:10000])
+                  return
+
+              count = result.get("count")
+              next_value = result.get("next")
+              cursor = result.get("cursor")
+              user_id = result.get("userId")
+
+              print(f"count: {count}")
+              print(f"next: {next_value}")
+              print(f"cursor: {cursor}")
+              print(f"userId: {user_id}")
+
+              items = result.get("insBos")
+
+              if not isinstance(items, list):
+                  print("❌ 'insBos' no es una lista.")
+                  print(json.dumps(result, indent=2, ensure_ascii=False)[:10000])
+                  return
+
+              print(f"Stories devueltos en insBos: {len(items)}")
+
+              if not items:
+                  print("⚠️ La API no devolvió Stories activos.")
+                  return
+
+              print()
+              print("STORIES ENCONTRADOS")
+              print("-" * 70)
+
+              for i, item in enumerate(items, 1):
+
+                  if not isinstance(item, dict):
+                      print(f"#{i}: elemento inesperado")
+                      continue
+
+                  story_id = item.get("id")
+
+                  original_url = item.get("originalUrl")
+                  fallback_url = item.get("url")
+
+                  media_url = original_url or fallback_url
+
+                  # Intentamos obtener duración desde diferentes lugares.
+                  duration = (
+                      item.get("duration")
+                      or item.get("duration_s")
+                      or item.get("videoDuration")
+                  )
+
+                  # Inferir tipo a partir de la URL.
+                  media_type = "desconocido"
+
+                  if media_url:
+                      lower_url = media_url.lower()
+
+                      if ".mp4" in lower_url:
+                          media_type = "VIDEO"
+                      elif ".jpg" in lower_url or ".jpeg" in lower_url:
+                          media_type = "IMAGEN"
+                      elif ".png" in lower_url:
+                          media_type = "IMAGEN"
+
+                  print(f"Story #{i}")
+                  print(f"  ID: {story_id}")
+                  print(f"  Tipo: {media_type}")
+                  print(f"  Duración: {duration}")
+
+                  if media_url:
+                      parsed = urllib.parse.urlparse(media_url)
+
+                      # No mostramos el query porque contiene tokens
+                      # temporales de Instagram/CDN.
+                      safe_url = (
+                          f"{parsed.scheme}://{parsed.netloc}"
+                          f"{parsed.path}"
+                      )
+
+                      print(f"  URL directa: {safe_url}")
+
+                      if parsed.query:
+                          print(
+                              f"  Query: OCULTA "
+                              f"({len(parsed.query)} caracteres)"
+                          )
+                  else:
+                      print("  URL directa: NO ENCONTRADA")
+
+                  # Mostrar algunas claves disponibles para conocer
+                  # exactamente la estructura que devuelve la API.
+                  print(
+                      "  Campos: "
+                      + ", ".join(sorted(item.keys()))
+                  )
+
+                  print("-" * 70)
+
+              print()
+              print("✅ PRUEBA TERMINADA PARA ESTA CUENTA.")
+
+          print()
+          print("=" * 70)
+          print("SNAPGRAM API - PRUEBA DIRECTA")
+          print("=" * 70)
+          print()
+          print("IMPORTANTE:")
+          print("- No se usa Playwright.")
+          print("- No se descarga ningún Story.")
+          print("- No se envía nada a Telegram.")
+          print("- No se modifica instagram-state.json.")
+          print()
+
+          for account in ACCOUNTS:
+              request_api(account)
+              time.sleep(2)
+
+          print()
+          print("=" * 70)
+          print("FIN DEL DIAGNÓSTICO")
+          print("=" * 70)
+          PY

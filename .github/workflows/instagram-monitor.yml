@@ -1,4 +1,4 @@
-name: Instagram Stories - DIAGNOSTICO RED
+name: Instagram Stories - DIAGNOSTICO API SNAPGRAM
 
 on:
   workflow_dispatch:
@@ -7,807 +7,465 @@ permissions:
   contents: read
 
 jobs:
-  network-diagnostic:
+  diagnostico:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Instalar dependencias
+      - name: Instalar Python y Playwright
         run: |
           python -m pip install --upgrade pip
           pip install playwright
-          playwright install --with-deps chromium
+          playwright install chromium
+          playwright install-deps chromium
 
-      - name: Crear diagnóstico de red
+      - name: Ejecutar diagnóstico
         run: |
-
-          cat > diagnostico_red.py <<'PY'
-
+          python <<'PY'
+          import asyncio
           import json
-          import time
           from urllib.parse import urlparse
 
-          from playwright.sync_api import sync_playwright
+          from playwright.async_api import async_playwright
 
 
-          SNAPGRAM_URL = (
-              "https://www.snapgram.io/"
-              "instagram-story-downloader/"
-          )
+          SNAPGRAM_URL = "https://www.snapgram.io/instagram-story-downloader/"
 
-          ACCOUNTS_FILE = "data/instagram-accounts.json"
-
-          LOG_FILE = "network-log.txt"
-
-
-          def load_accounts():
-
-              with open(
-                  ACCOUNTS_FILE,
-                  "r",
-                  encoding="utf-8"
-              ) as f:
-                  return json.load(f)
+          ACCOUNTS = [
+              "zero.design.oficial",
+              "carenballen",
+              "laderechadiario",
+          ]
 
 
-          log_file = open(
-              LOG_FILE,
-              "w",
-              encoding="utf-8"
-          )
-
-
-          def log(text=""):
-
-              print(text)
-              log_file.write(text + "\n")
-              log_file.flush()
-
-
-          def shorten(text, limit=2000):
-
-              if text is None:
-                  return ""
-
-              text = str(text)
-
-              if len(text) > limit:
-                  return text[:limit] + "... [RECORTADO]"
-
-              return text
+          KEYWORDS = [
+              "api",
+              "instagram",
+              "story",
+              "stories",
+              "media",
+              "download",
+              "graphql",
+              "ajax",
+              "json",
+              "result",
+              "fetch",
+          ]
 
 
           def interesting_url(url):
+              u = url.lower()
 
-              url_lower = url.lower()
-
-              keywords = [
-                  "instagram",
-                  "story",
-                  "stories",
-                  "reel",
-                  "media",
-                  "download",
-                  "api",
-                  "graphql",
-                  "json",
-                  "cdn",
-                  "video",
-                  "image",
-                  "scontent",
-                  "fbcdn",
-                  "cdninstagram",
-                  "snapgram"
+              # Ignorar recursos estáticos normales de Snapgram
+              ignored = [
+                  "/_next/static/",
+                  ".css",
+                  ".js",
+                  ".woff",
+                  ".woff2",
+                  ".png",
+                  ".jpg",
+                  ".jpeg",
+                  ".svg",
+                  ".ico",
               ]
 
-              return any(
-                  keyword in url_lower
-                  for keyword in keywords
-              )
+              if any(x in u for x in ignored):
+                  return False
+
+              return any(k in u for k in KEYWORDS)
 
 
-          def get_content_type(response):
-
+          async def safe_text(response):
               try:
-                  return (
-                      response.headers.get(
-                          "content-type",
-                          ""
-                      )
-                      or ""
-                  )
-              except Exception:
-                  return ""
+                  return await response.text()
+              except Exception as e:
+                  return f"[NO SE PUDO LEER BODY: {e}]"
 
 
-          def attach_network_listeners(page):
+          async def diagnosticar(browser, username):
 
-              request_counter = {
-                  "total": 0,
-                  "interesting": 0,
-                  "responses": 0
-              }
+              print()
+              print("=" * 90)
+              print(f"CUENTA: @{username}")
+              print("=" * 90)
 
+              page = await browser.new_page()
 
-              def on_request(request):
+              interesting_requests = []
+              interesting_responses = []
 
-                  request_counter["total"] += 1
+              async def on_request(request):
 
                   url = request.url
 
-                  if not interesting_url(url):
-                      return
+                  if interesting_url(url):
 
-                  request_counter["interesting"] += 1
+                      print()
+                      print(">>> REQUEST INTERESANTE <<<")
+                      print("METHOD:", request.method)
+                      print("URL:", url)
 
-                  log()
-                  log(">>> REQUEST")
-                  log(
-                      f"METHOD: {request.method}"
-                  )
-                  log(
-                      f"URL: {url}"
-                  )
+                      try:
+                          headers = await request.all_headers()
 
-                  try:
+                          selected = {}
 
-                      headers = request.all_headers()
+                          for key, value in headers.items():
+                              if key.lower() in [
+                                  "content-type",
+                                  "accept",
+                                  "origin",
+                                  "referer",
+                                  "user-agent",
+                              ]:
+                                  selected[key] = value
 
-                      interesting_headers = {}
-
-                      for key, value in headers.items():
-
-                          key_lower = key.lower()
-
-                          if key_lower in [
-                              "content-type",
-                              "accept",
-                              "referer",
-                              "origin",
-                              "x-requested-with"
-                          ]:
-                              interesting_headers[key] = value
-
-                      if interesting_headers:
-
-                          log(
-                              "HEADERS:"
-                          )
-
-                          log(
-                              json.dumps(
-                                  interesting_headers,
+                          if selected:
+                              print("HEADERS:")
+                              print(json.dumps(
+                                  selected,
                                   indent=2,
                                   ensure_ascii=False
-                              )
-                          )
+                              ))
 
-                  except Exception as e:
+                      except Exception:
+                          pass
 
-                      log(
-                          f"Headers error: {e}"
-                      )
+                      try:
+                          post_data = request.post_data
 
+                          if post_data:
+                              print("REQUEST BODY:")
+                              print(post_data[:10000])
 
-              def on_response(response):
+                      except Exception:
+                          pass
 
-                  request_counter["responses"] += 1
+                      interesting_requests.append(request)
+
+              async def on_response(response):
 
                   url = response.url
 
-                  if not interesting_url(url):
-                      return
+                  if interesting_url(url):
 
-                  log()
-                  log("<<< RESPONSE")
+                      print()
+                      print("<<< RESPONSE INTERESANTE <<<")
+                      print("HTTP:", response.status)
+                      print("METHOD:", response.request.method)
+                      print("URL:", url)
 
-                  log(
-                      f"HTTP: {response.status}"
-                  )
+                      try:
+                          headers = await response.all_headers()
 
-                  log(
-                      f"METHOD: "
-                      f"{response.request.method}"
-                  )
-
-                  log(
-                      f"URL: {url}"
-                  )
-
-                  content_type = get_content_type(
-                      response
-                  )
-
-                  log(
-                      f"Content-Type: "
-                      f"{content_type}"
-                  )
-
-                  try:
-
-                      headers = response.all_headers()
-
-                      interesting_headers = {}
-
-                      for key, value in headers.items():
-
-                          key_lower = key.lower()
-
-                          if key_lower in [
+                          content_type = headers.get(
                               "content-type",
-                              "content-length",
-                              "location",
-                              "server"
-                          ]:
-                              interesting_headers[key] = value
-
-                      if interesting_headers:
-
-                          log(
-                              "RESPONSE HEADERS:"
+                              ""
                           )
 
-                          log(
-                              json.dumps(
-                                  interesting_headers,
-                                  indent=2,
-                                  ensure_ascii=False
-                              )
-                          )
+                          print("Content-Type:", content_type)
 
-                  except Exception:
-                      pass
+                          interesting_responses.append(response)
 
+                          # Solo intentamos leer cuerpos que puedan contener
+                          # información útil.
+                          if (
+                              "json" in content_type.lower()
+                              or "text" in content_type.lower()
+                          ):
 
-                  # Intentar leer respuestas pequeñas
-                  # que parezcan JSON/texto.
-                  try:
+                              body = await safe_text(response)
 
-                      ct = content_type.lower()
+                              print("RESPONSE BODY:")
+                              print(body[:20000])
 
-                      if (
-                          "json" in ct
-                          or "text/" in ct
-                          or "javascript" in ct
-                      ):
-
-                          body = response.text(
-                              timeout=5000
-                          )
-
-                          if len(body) <= 15000:
-
-                              log(
-                                  "RESPONSE BODY:"
-                              )
-
-                              log(
-                                  shorten(
-                                      body,
-                                      15000
-                                  )
-                              )
-
-                          else:
-
-                              log(
-                                  "RESPONSE BODY: "
-                                  f"[{len(body)} caracteres, "
-                                  "demasiado grande]"
-                              )
-
-                  except Exception as e:
-
-                      log(
-                          f"No se pudo leer body: {e}"
-                      )
+                      except Exception as e:
+                          print("Error procesando respuesta:", e)
 
 
-              page.on(
-                  "request",
-                  on_request
-              )
-
-              page.on(
-                  "response",
-                  on_response
-              )
-
-              return request_counter
+              page.on("request", on_request)
+              page.on("response", on_response)
 
 
-          def find_input(page):
+              print()
+              print("Abriendo:")
+              print(SNAPGRAM_URL)
 
-              selectors = [
-                  "input[type='text']",
-                  "input",
-                  "textarea"
-              ]
-
-              for selector in selectors:
-
-                  try:
-
-                      locator = page.locator(
-                          selector
-                      )
-
-                      count = locator.count()
-
-                      for i in range(count):
-
-                          element = locator.nth(i)
-
-                          if element.is_visible():
-
-                              return element
-
-                  except Exception:
-                      pass
-
-              return None
-
-
-          def find_download_button(page):
-
-              buttons = page.locator(
-                  "button, "
-                  "input[type='submit'], "
-                  "a"
-              )
-
-              for i in range(buttons.count()):
-
-                  try:
-
-                      button = buttons.nth(i)
-
-                      if not button.is_visible():
-                          continue
-
-                      text = (
-                          button.inner_text()
-                          .strip()
-                          .lower()
-                      )
-
-                      value = (
-                          button.get_attribute(
-                              "value"
-                          )
-                          or ""
-                      ).strip().lower()
-
-                      combined = (
-                          text
-                          + " "
-                          + value
-                      )
-
-                      if "download" in combined:
-
-                          return button
-
-                  except Exception:
-                      pass
-
-              return None
-
-
-          def dump_all_requests_summary(
-              request_counter
-          ):
-
-              log()
-              log("=" * 60)
-              log("RESUMEN DE RED")
-              log("=" * 60)
-
-              log(
-                  f"Total requests: "
-                  f"{request_counter['total']}"
-              )
-
-              log(
-                  f"Requests interesantes: "
-                  f"{request_counter['interesting']}"
-              )
-
-              log(
-                  f"Responses interesantes: "
-                  f"{request_counter['responses']}"
-              )
-
-
-          def process_account(
-              page,
-              username
-          ):
-
-              log()
-              log("=" * 70)
-              log(
-                  f"CUENTA: @{username}"
-              )
-              log("=" * 70)
-
-              story_url = (
-                  "https://www.instagram.com/"
-                  f"stories/{username}/"
-              )
-
-              log()
-              log(
-                  "STORY URL:"
-              )
-
-              log(story_url)
-
-              log()
-              log(
-                  "Abriendo Snapgram:"
-              )
-
-              log(SNAPGRAM_URL)
-
-              page.goto(
+              await page.goto(
                   SNAPGRAM_URL,
                   wait_until="domcontentloaded",
                   timeout=60000
               )
 
-              log(
-                  "Página cargada."
-              )
+              await page.wait_for_timeout(5000)
 
-              page.wait_for_timeout(
-                  3000
-              )
+              print()
+              print("Página cargada.")
 
-              # -------------------------------------------------
-              # Instalar listeners ANTES del botón Download.
-              # -------------------------------------------------
+              # Buscar campo de entrada
+              inputs = page.locator("input")
 
-              request_counter = (
-                  attach_network_listeners(
-                      page
-                  )
-              )
+              count = await inputs.count()
 
-              log()
-              log(
-                  "Listeners de red instalados."
-              )
+              print("Inputs encontrados:", count)
 
-              # -------------------------------------------------
-              # Campo.
-              # -------------------------------------------------
+              input_found = None
 
-              input_box = find_input(page)
+              for i in range(count):
 
-              if not input_box:
+                  try:
+                      el = inputs.nth(i)
 
-                  raise RuntimeError(
-                      "No se encontró el campo."
-                  )
+                      if await el.is_visible():
 
-              log(
-                  "Campo encontrado."
-              )
-
-              input_box.fill(
-                  story_url
-              )
-
-              log(
-                  "URL introducida."
-              )
-
-              page.wait_for_timeout(
-                  1000
-              )
-
-              # -------------------------------------------------
-              # Download.
-              # -------------------------------------------------
-
-              download_button = (
-                  find_download_button(page)
-              )
-
-              if not download_button:
-
-                  raise RuntimeError(
-                      "No se encontró "
-                      "el botón Download."
-                  )
-
-              log(
-                  "Botón Download encontrado."
-              )
-
-              log()
-              log(
-                  ">>> HACIENDO CLICK EN DOWNLOAD <<<"
-              )
-
-              click_time = time.time()
-
-              download_button.click()
-
-              log(
-                  "Click realizado."
-              )
-
-              # -------------------------------------------------
-              # Esperar bastante tiempo para capturar
-              # las peticiones posteriores.
-              # -------------------------------------------------
-
-              log()
-              log(
-                  "Capturando tráfico durante "
-                  "30 segundos..."
-              )
-
-              for second in range(30):
-
-                  page.wait_for_timeout(
-                      1000
-                  )
-
-                  log(
-                      f"Segundo "
-                      f"{second + 1}/30"
-                  )
-
-              # -------------------------------------------------
-              # Estado del DOM.
-              # -------------------------------------------------
-
-              log()
-              log("=" * 60)
-              log(
-                  "ESTADO DEL DOM DESPUÉS DEL DOWNLOAD"
-              )
-              log("=" * 60)
-
-              try:
-
-                  videos = page.locator(
-                      "video"
-                  )
-
-                  log(
-                      f"Videos: "
-                      f"{videos.count()}"
-                  )
-
-                  for i in range(
-                      videos.count()
-                  ):
-
-                      video = videos.nth(i)
-
-                      log()
-                      log(
-                          f"VIDEO #{i + 1}"
-                      )
-
-                      log(
-                          "src="
-                          + str(
-                              video.get_attribute(
-                                  "src"
-                              )
+                          placeholder = await el.get_attribute(
+                              "placeholder"
                           )
-                      )
 
-                      log(
-                          "currentSrc="
-                          + str(
-                              video.evaluate(
-                                  "(el) => el.currentSrc"
-                              )
+                          name = await el.get_attribute("name")
+                          value = await el.get_attribute("value")
+
+                          print(
+                              f"INPUT #{i}: "
+                              f"placeholder={placeholder!r} "
+                              f"name={name!r} "
+                              f"value={value!r}"
                           )
-                      )
 
-                      log(
-                          "poster="
-                          + str(
-                              video.get_attribute(
-                                  "poster"
-                              )
-                          )
-                      )
+                          input_found = el
+                          break
 
-                      log(
-                          "outerHTML="
-                      )
+                  except Exception:
+                      pass
 
-                      log(
-                          shorten(
-                              video.evaluate(
-                                  "(el) => el.outerHTML"
-                              ),
-                              5000
-                          )
-                      )
 
-              except Exception as e:
+              if input_found is None:
 
-                  log(
-                      f"Error videos: {e}"
+                  print("❌ No se encontró un input visible.")
+
+                  await page.screenshot(
+                      path=f"diagnostico_{username}_sin_input.png",
+                      full_page=True
                   )
 
-
-              try:
-
-                  images = page.locator(
-                      "img"
-                  )
-
-                  log(
-                      f"Imágenes: "
-                      f"{images.count()}"
-                  )
-
-                  for i in range(
-                      images.count()
-                  ):
-
-                      img = images.nth(i)
-
-                      src = (
-                          img.get_attribute(
-                              "src"
-                          )
-                          or ""
-                      )
-
-                      # Solo mostrar imágenes
-                      # que no sean los assets locales
-                      # de Snapgram.
-                      if (
-                          src.startswith("/")
-                          or "_next/static" in src
-                      ):
-                          continue
-
-                      log()
-                      log(
-                          f"IMAGEN #{i + 1}"
-                      )
-
-                      log(
-                          "src="
-                          + src
-                      )
-
-                      log(
-                          "srcset="
-                          + str(
-                              img.get_attribute(
-                                  "srcset"
-                              )
-                          )
-                      )
-
-              except Exception as e:
-
-                  log(
-                      f"Error imágenes: {e}"
-                  )
+                  await page.close()
+                  return
 
 
-              dump_all_requests_summary(
-                  request_counter
+              story_url = (
+                  f"https://www.instagram.com/stories/{username}/"
               )
 
+              print()
+              print("URL QUE SE ENVIARÁ A SNAPGRAM:")
+              print(story_url)
 
-          def main():
+              await input_found.fill(story_url)
 
-              accounts = load_accounts()
+              await page.wait_for_timeout(1000)
 
-              log()
-              log("=" * 70)
-              log(
-                  "INSTAGRAM STORIES"
-              )
-              log(
-                  "DIAGNOSTICO DE RED"
-              )
-              log(
-                  "DESCARGADOR: SNAPGRAM"
-              )
-              log("=" * 70)
 
-              log()
-              log(
-                  "Cuentas:"
+              # Buscar botón Download
+              buttons = page.get_by_role(
+                  "button",
+                  name="Download"
               )
 
-              for account in accounts:
+              button_count = await buttons.count()
 
-                  log(
-                      f"  - @{account}"
+              print()
+              print("Botones Download encontrados:", button_count)
+
+              button_found = None
+
+              for i in range(button_count):
+
+                  try:
+
+                      el = buttons.nth(i)
+
+                      if await el.is_visible():
+
+                          button_found = el
+                          break
+
+                  except Exception:
+                      pass
+
+
+              # Si no encuentra por role, buscar botones/enlaces por texto.
+              if button_found is None:
+
+                  print(
+                      "No apareció botón por role; "
+                      "buscando elementos con texto Download..."
                   )
 
-              with sync_playwright() as p:
-
-                  browser = p.chromium.launch(
-                      headless=True
+                  candidates = page.locator(
+                      "button, a"
                   )
 
-                  context = browser.new_context(
+                  c = await candidates.count()
 
-                      viewport={
-                          "width": 1280,
-                          "height": 1000
-                      },
-
-                      user_agent=(
-                          "Mozilla/5.0 "
-                          "(X11; Linux x86_64) "
-                          "AppleWebKit/537.36 "
-                          "(KHTML, like Gecko) "
-                          "Chrome/131.0.0.0 "
-                          "Safari/537.36"
-                      )
-                  )
-
-                  page = context.new_page()
-
-                  for username in accounts:
+                  for i in range(c):
 
                       try:
 
-                          process_account(
-                              page,
+                          el = candidates.nth(i)
+
+                          if not await el.is_visible():
+                              continue
+
+                          text = (
+                              await el.inner_text()
+                          ).strip().lower()
+
+                          if text == "download":
+
+                              button_found = el
+                              break
+
+                      except Exception:
+                          pass
+
+
+              if button_found is None:
+
+                  print("❌ No se encontró botón Download.")
+
+                  await page.screenshot(
+                      path=f"diagnostico_{username}_sin_boton.png",
+                      full_page=True
+                  )
+
+                  await page.close()
+                  return
+
+
+              print()
+              print(">>> HACIENDO CLICK EN DOWNLOAD <<<")
+              print()
+
+              await button_found.click()
+
+              # Esperamos suficiente para capturar llamadas API.
+              for i in range(30):
+
+                  await page.wait_for_timeout(1000)
+
+                  print(
+                      f"Esperando red... "
+                      f"{i + 1}/30"
+                  )
+
+
+              print()
+              print("=" * 90)
+              print("RESUMEN")
+              print("=" * 90)
+
+              print(
+                  "Requests interesantes:",
+                  len(interesting_requests)
+              )
+
+              print(
+                  "Responses interesantes:",
+                  len(interesting_responses)
+              )
+
+
+              print()
+              print("URL FINAL DE LA PÁGINA:")
+              print(page.url)
+
+
+              print()
+              print("TÍTULO:")
+              print(await page.title())
+
+
+              print()
+              print("=" * 90)
+              print("TODAS LAS PETICIONES INTERESANTES CAPTURADAS")
+              print("=" * 90)
+
+              seen = set()
+
+              for request in interesting_requests:
+
+                  key = (
+                      request.method,
+                      request.url
+                  )
+
+                  if key in seen:
+                      continue
+
+                  seen.add(key)
+
+                  print(
+                      request.method,
+                      request.url
+                  )
+
+
+              print()
+              print("=" * 90)
+              print("FIN CUENTA")
+              print("=" * 90)
+
+              await page.screenshot(
+                  path=f"diagnostico_{username}_final.png",
+                  full_page=True
+              )
+
+              await page.close()
+
+
+          async def main():
+
+              async with async_playwright() as p:
+
+                  browser = await p.chromium.launch(
+                      headless=True,
+                      args=[
+                          "--no-sandbox",
+                          "--disable-dev-shm-usage",
+                      ]
+                  )
+
+                  for username in ACCOUNTS:
+
+                      try:
+
+                          await diagnosticar(
+                              browser,
                               username
                           )
 
                       except Exception as e:
 
-                          log()
-                          log(
-                              f"❌ ERROR @{username}"
+                          print()
+                          print(
+                              f"❌ ERROR EN @{username}: {e}"
                           )
 
-                          log(
-                              repr(e)
-                          )
-
-                      # Pausa entre cuentas.
-                      page.wait_for_timeout(
-                          3000
-                      )
-
-                  browser.close()
-
-              log_file.close()
+                  await browser.close()
 
 
-          if __name__ == "__main__":
-              main()
+          asyncio.run(main())
 
           PY
 
-      - name: Comprobar sintaxis
-        run: |
-          python -m py_compile diagnostico_red.py
-
-      - name: Ejecutar diagnóstico
-        run: |
-          python diagnostico_red.py
-
-      - name: Subir log de red
+      - name: Guardar diagnóstico
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: instagram-network-log
-          path: network-log.txt
-          retention-days: 7
+          name: diagnostico-snapgram-api
+          path: |
+            diagnostico_*.png
+          if-no-files-found: ignore

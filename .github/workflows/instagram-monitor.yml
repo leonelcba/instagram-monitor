@@ -34,7 +34,7 @@ jobs:
           from playwright.sync_api import sync_playwright
 
 
-          SSS_URL = "https://sssinstagram.com/es/story-saver"
+          SSS_URL = "https://www.snapgram.io/instagram-story-downloader/"
 
           ACCOUNTS_FILE = Path("data/instagram-accounts.json")
           STATE_FILE = Path("data/instagram-state.json")

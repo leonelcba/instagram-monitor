@@ -1,4 +1,4 @@
-name: Diagnóstico Stories SSSInstagram
+name: Diagnóstico Snapgram Stories
 
 on:
   workflow_dispatch:
@@ -8,940 +8,559 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Instalar dependencias
+      - name: Instalar Python y Playwright
         run: |
           python -m pip install --upgrade pip
           pip install playwright
-          playwright install --with-deps chromium
+          playwright install chromium
+          playwright install-deps chromium
 
-      - name: Diagnosticar Story Saver
+      - name: Ejecutar diagnóstico Snapgram
+        shell: python
         run: |
-          cat > diagnostico.py <<'PY'
-          from playwright.sync_api import sync_playwright
           import time
-          import json
+          from pathlib import Path
+
+          from playwright.sync_api import sync_playwright
 
           ACCOUNT = "laderechadiario"
-          URL = "https://sssinstagram.com/es/story-saver"
+          SNAPGRAM_URL = "https://www.snapgram.io/instagram-story-downloader/"
+          PROFILE_URL = f"https://www.instagram.com/{ACCOUNT}/"
 
-          print("=" * 80)
-          print("DIAGNÓSTICO ESPECÍFICO DE STORIES")
-          print("=" * 80)
+          print("=" * 70)
+          print("DIAGNÓSTICO SNAPGRAM - INSTAGRAM STORIES")
+          print("=" * 70)
           print(f"Cuenta: @{ACCOUNT}")
-          print(f"URL: {URL}")
-          print()
+          print(f"Página: {SNAPGRAM_URL}")
+          print(f"Perfil: {PROFILE_URL}")
+          print("=" * 70)
 
           with sync_playwright() as p:
 
               browser = p.chromium.launch(
-                  headless=True
+                  headless=True,
+                  args=[
+                      "--disable-blink-features=AutomationControlled",
+                      "--no-sandbox",
+                      "--disable-dev-shm-usage"
+                  ]
               )
 
               context = browser.new_context(
                   viewport={
-                      "width": 1366,
-                      "height": 900
+                      "width": 1365,
+                      "height": 1000
                   },
                   user_agent=(
-                      "Mozilla/5.0 "
-                      "(X11; Linux x86_64) "
-                      "AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) "
-                      "Chrome/139.0.0.0 "
-                      "Safari/537.36"
+                      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/131.0.0.0 Safari/537.36"
                   )
               )
 
               page = context.new_page()
 
-              # ==========================================================
-              # 1. ABRIR STORY SAVER
-              # ==========================================================
-
-              print("1. Abriendo Story Saver...")
+              print()
+              print("=" * 70)
+              print("1. ABRIENDO SNAPGRAM")
+              print("=" * 70)
 
               page.goto(
-                  URL,
+                  SNAPGRAM_URL,
                   wait_until="domcontentloaded",
                   timeout=60000
               )
 
-              page.wait_for_timeout(3000)
+              time.sleep(3)
 
-              print("Título:")
-              print(page.title())
-
-              print("URL:")
-              print(page.url)
+              print(f"URL actual: {page.url}")
+              print(f"Título: {page.title()}")
 
               print()
-
-              # ==========================================================
-              # 2. ANALIZAR FORMULARIOS
-              # ==========================================================
-
-              print("=" * 80)
-              print("2. FORMULARIOS")
-              print("=" * 80)
-
-              forms = page.locator("form")
-
-              print(
-                  f"Cantidad de formularios: {forms.count()}"
-              )
-
-              for i in range(forms.count()):
-
-                  form = forms.nth(i)
-
-                  try:
-                      print()
-                      print(f"FORM #{i}")
-
-                      print(
-                          "action:",
-                          form.get_attribute("action")
-                      )
-
-                      print(
-                          "method:",
-                          form.get_attribute("method")
-                      )
-
-                      print(
-                          "texto:",
-                          form.inner_text()[:500]
-                      )
-
-                      print(
-                          "HTML:"
-                      )
-
-                      print(
-                          form.evaluate(
-                              "el => el.outerHTML"
-                          )[:3000]
-                      )
-
-                  except Exception as e:
-
-                      print(
-                          "Error:",
-                          e
-                      )
-
-              print()
-
-              # ==========================================================
-              # 3. INPUTS
-              # ==========================================================
-
-              print("=" * 80)
-              print("3. INPUTS")
-              print("=" * 80)
+              print("=" * 70)
+              print("2. BUSCANDO INPUT")
+              print("=" * 70)
 
               inputs = page.locator("input")
 
-              print(
-                  f"Cantidad de inputs: {inputs.count()}"
-              )
+              print(f"Inputs encontrados: {inputs.count()}")
 
               for i in range(inputs.count()):
-
-                  el = inputs.nth(i)
-
                   try:
-
-                      print()
-                      print(
-                          f"INPUT #{i}"
-                      )
+                      element = inputs.nth(i)
 
                       print(
-                          el.evaluate(
-                              """el => {
-                                  const r = {};
-                                  for (const a of el.attributes) {
-                                      r[a.name] = a.value;
-                                  }
-                                  return r;
-                              }"""
-                          )
+                          f"INPUT #{i} | "
+                          f"type={element.get_attribute('type')} | "
+                          f"name={element.get_attribute('name')} | "
+                          f"placeholder={element.get_attribute('placeholder')} | "
+                          f"value={element.input_value()}"
                       )
+                  except Exception as e:
+                      print(f"INPUT #{i}: error: {e}")
 
-                  except:
+              if inputs.count() == 0:
+                  print("❌ No se encontró ningún input.")
+                  page.screenshot(
+                      path="snapgram-debug.png",
+                      full_page=True
+                  )
+                  page.content()
+                  Path("snapgram-debug.html").write_text(
+                      page.content(),
+                      encoding="utf-8"
+                  )
+                  browser.close()
+                  raise SystemExit(1)
 
-                      pass
-
-              print()
-
-              # ==========================================================
-              # 4. IDENTIFICAR INPUT REAL
-              # ==========================================================
-
-              print("=" * 80)
-              print("4. BUSCANDO INPUT DEL STORY SAVER")
-              print("=" * 80)
-
-              input_box = None
+              target_input = None
 
               for i in range(inputs.count()):
-
-                  el = inputs.nth(i)
-
                   try:
+                      element = inputs.nth(i)
 
-                      typ = (
-                          el.get_attribute("type")
-                          or ""
+                      input_type = (
+                          element.get_attribute("type") or ""
                       ).lower()
 
                       placeholder = (
-                          el.get_attribute("placeholder")
-                          or ""
+                          element.get_attribute("placeholder") or ""
                       ).lower()
 
-                      name = (
-                          el.get_attribute("name")
-                          or ""
-                      ).lower()
-
-                      if typ in [
-                          "",
-                          "text",
-                          "url"
-                      ]:
-
-                          input_box = el
-
-                          print(
-                              f"Input elegido: #{i}"
-                          )
-
-                          print(
-                              "type:",
-                              typ
-                          )
-
-                          print(
-                              "placeholder:",
-                              placeholder
-                          )
-
-                          print(
-                              "name:",
-                              name
-                          )
-
-                          break
-
-                  except:
-
-                      pass
-
-              if input_box is None:
-
-                  print(
-                      "❌ NO SE ENCONTRÓ EL INPUT"
-                  )
-
-                  browser.close()
-
-                  raise SystemExit(1)
-
-              # ==========================================================
-              # 5. FORMULARIO ASOCIADO
-              # ==========================================================
-
-              print()
-              print("=" * 80)
-              print("5. FORMULARIO ASOCIADO AL INPUT")
-              print("=" * 80)
-
-              form = None
-
-              try:
-
-                  form = input_box.locator(
-                      "xpath=ancestor::form[1]"
-                  )
-
-                  print(
-                      "Form encontrado:",
-                      form.count()
-                  )
-
-                  if form.count():
-
-                      print(
-                          form.evaluate(
-                              "el => el.outerHTML"
-                          )[:8000]
-                      )
-
-              except Exception as e:
-
-                  print(
-                      "Error:",
-                      e
-                  )
-
-              if form is None or form.count() == 0:
-
-                  print(
-                      "❌ El input no pertenece a ningún form."
-                  )
-
-                  browser.close()
-
-                  raise SystemExit(1)
-
-              # ==========================================================
-              # 6. INTRODUCIR CUENTA
-              # ==========================================================
-
-              profile_url = (
-                  f"https://www.instagram.com/"
-                  f"{ACCOUNT}/"
-              )
-
-              print()
-              print("=" * 80)
-              print("6. INTRODUCIENDO PERFIL")
-              print("=" * 80)
-
-              print(
-                  "Perfil:",
-                  profile_url
-              )
-
-              input_box.fill(
-                  profile_url
-              )
-
-              page.wait_for_timeout(1000)
-
-              print(
-                  "Valor actual:",
-                  input_box.input_value()
-              )
-
-              # ==========================================================
-              # 7. BOTONES DEL FORM
-              # ==========================================================
-
-              print()
-              print("=" * 80)
-              print("7. BOTONES DEL FORMULARIO")
-              print("=" * 80)
-
-              buttons = form.locator(
-                  "button, input[type='submit'], a"
-              )
-
-              print(
-                  "Cantidad:",
-                  buttons.count()
-              )
-
-              for i in range(buttons.count()):
-
-                  el = buttons.nth(i)
-
-                  try:
-
-                      print()
-                      print(
-                          f"BOTÓN #{i}"
-                      )
-
-                      print(
-                          "tag:",
-                          el.evaluate(
-                              "el => el.tagName"
-                          )
-                      )
-
-                      print(
-                          "text:",
-                          el.inner_text()
-                      )
-
-                      print(
-                          "type:",
-                          el.get_attribute("type")
-                      )
-
-                      print(
-                          "class:",
-                          el.get_attribute("class")
-                      )
-
-                      print(
-                          "href:",
-                          el.get_attribute("href")
-                      )
-
-                      print(
-                          "HTML:",
-                          el.evaluate(
-                              "el => el.outerHTML"
-                          )[:3000]
-                      )
-
-                  except Exception as e:
-
-                      print(
-                          "Error:",
-                          e
-                      )
-
-              # ==========================================================
-              # 8. ENVIAR FORMULARIO
-              # ==========================================================
-
-              print()
-              print("=" * 80)
-              print("8. ENVIANDO FORMULARIO")
-              print("=" * 80)
-
-              clicked = False
-
-              # ----------------------------------------------------------
-              # Primero intentar submit real
-              # ----------------------------------------------------------
-
-              try:
-
-                  submit = form.locator(
-                      "button[type='submit'], "
-                      "input[type='submit']"
-                  )
-
-                  print(
-                      "Submits encontrados:",
-                      submit.count()
-                  )
-
-                  if submit.count():
-
-                      print(
-                          "Usando submit real del formulario."
-                      )
-
-                      for i in range(
-                          submit.count()
-                      ):
-
-                          try:
-
-                              print(
-                                  f"Submit #{i}:",
-                                  submit.nth(i).evaluate(
-                                      "el => el.outerHTML"
-                                  )[:2000]
-                              )
-
-                          except:
-
-                              pass
-
-                      submit.first.click()
-
-                      clicked = True
-
-              except Exception as e:
-
-                  print(
-                      "Error con submit:",
-                      e
-                  )
-
-              # ----------------------------------------------------------
-              # Si no existe submit, buscar Descargar dentro del form
-              # ----------------------------------------------------------
-
-              if not clicked:
-
-                  try:
-
-                      descargar = form.get_by_text(
-                          "Descargar",
-                          exact=True
-                      )
-
-                      print(
-                          "Descargar dentro del form:",
-                          descargar.count()
-                      )
-
-                      if descargar.count():
-
-                          print(
-                              "Usando Descargar del formulario."
-                          )
-
-                          descargar.first.click()
-
-                          clicked = True
-
-                  except Exception as e:
-
-                      print(
-                          "Error con Descargar:",
-                          e
-                      )
-
-              if not clicked:
-
-                  print(
-                      "❌ NO SE PUDO ENVIAR EL FORMULARIO"
-                  )
-
-                  browser.close()
-
-                  raise SystemExit(1)
-
-              print(
-                  "✅ Formulario enviado."
-              )
-
-              # ==========================================================
-              # 9. ESPERAR RESULTADO
-              # ==========================================================
-
-              print()
-              print("=" * 80)
-              print("9. ESPERANDO RESULTADO")
-              print("=" * 80)
-
-              for i in range(1, 11):
-
-                  page.wait_for_timeout(2000)
-
-                  print()
-                  print(
-                      f"--- Espera {i}/10 ---"
-                  )
-
-                  print(
-                      "URL:",
-                      page.url
-                  )
-
-                  print(
-                      "IMG:",
-                      page.locator("img").count()
-                  )
-
-                  print(
-                      "VIDEO:",
-                      page.locator("video").count()
-                  )
-
-                  print(
-                      "SOURCE:",
-                      page.locator("source").count()
-                  )
-
-                  print(
-                      "A:",
-                      page.locator("a").count()
-                  )
-
-              # ==========================================================
-              # 10. BUSCAR RESULTADO DEL PERFIL
-              # ==========================================================
-
-              print()
-              print("=" * 80)
-              print("10. ELEMENTOS DEL RESULTADO")
-              print("=" * 80)
-
-              texto = page.get_by_text(
-                  ACCOUNT,
-                  exact=False
-              )
-
-              print(
-                  "Elementos con nombre de cuenta:",
-                  texto.count()
-              )
-
-              for i in range(
-                  min(texto.count(), 20)
-              ):
-
-                  try:
-
-                      el = texto.nth(i)
-
-                      print()
-                      print(
-                          f"ELEMENTO CUENTA #{i}"
-                      )
-
-                      print(
-                          "tag:",
-                          el.evaluate(
-                              "el => el.tagName"
-                          )
-                      )
-
-                      print(
-                          "text:",
-                          el.inner_text()[:1000]
-                      )
-
-                      print(
-                          "HTML:"
-                      )
-
-                      print(
-                          el.evaluate(
-                              "el => el.outerHTML"
-                          )[:5000]
-                      )
-
-                  except:
-
-                      pass
-
-              # ==========================================================
-              # 11. CONTENEDORES DE RESULTADOS
-              # ==========================================================
-
-              print()
-              print("=" * 80)
-              print("11. CONTENEDORES DE RESULTADOS")
-              print("=" * 80)
-
-              candidates = page.locator(
-                  "div, article, section, li"
-              )
-
-              encontrados = 0
-
-              total_candidates = candidates.count()
-
-              print(
-                  "Elementos candidatos:",
-                  total_candidates
-              )
-
-              for i in range(
-                  min(total_candidates, 1500)
-              ):
-
-                  el = candidates.nth(i)
-
-                  try:
-
-                      text = (
-                          el.inner_text(
-                              timeout=100
-                          )
-                          or ""
-                      )
-
-                      if "Descargar" not in text:
-
-                          continue
-
-                      imgs = el.locator(
-                          "img"
-                      ).count()
-
-                      videos = el.locator(
-                          "video"
-                      ).count()
-
-                      sources = el.locator(
-                          "source"
-                      ).count()
-
-                      links = el.locator(
-                          "a[href]"
-                      ).count()
-
-                      if (
-                          imgs > 0
-                          or videos > 0
-                          or sources > 0
-                          or links > 0
-                      ):
-
-                          encontrados += 1
-
-                          print()
-                          print(
-                              f"CONTENEDOR #{i}"
-                          )
-
-                          print(
-                              "Texto:",
-                              text[:1000]
-                          )
-
-                          print(
-                              "IMG:",
-                              imgs
-                          )
-
-                          print(
-                              "VIDEO:",
-                              videos
-                          )
-
-                          print(
-                              "SOURCE:",
-                              sources
-                          )
-
-                          print(
-                              "LINKS:",
-                              links
-                          )
-
-                          print(
-                              "HTML:"
-                          )
-
-                          print(
-                              el.evaluate(
-                                  "el => el.outerHTML"
-                              )[:8000]
-                          )
-
-                          if encontrados >= 20:
-
+                      if input_type in ["text", "url", "search", ""]:
+                          if (
+                              "link" in placeholder
+                              or "username" in placeholder
+                              or "url" in placeholder
+                              or "paste" in placeholder
+                              or "nombre" in placeholder
+                              or "usuario" in placeholder
+                              or "enlace" in placeholder
+                          ):
+                              target_input = element
                               break
 
-                  except:
+                  except Exception:
+                      pass
 
+              if target_input is None:
+                  target_input = inputs.first
+
+              print()
+              print("Input seleccionado:")
+              print(
+                  f"placeholder="
+                  f"{target_input.get_attribute('placeholder')}"
+              )
+
+              print()
+              print("=" * 70)
+              print("3. INTRODUCIENDO PERFIL")
+              print("=" * 70)
+
+              target_input.fill(PROFILE_URL)
+
+              print(f"Valor introducido: {PROFILE_URL}")
+
+              time.sleep(1)
+
+              print()
+              print("=" * 70)
+              print("4. BOTONES")
+              print("=" * 70)
+
+              buttons = page.locator(
+                  "button, input[type='submit'], "
+                  "a[role='button']"
+              )
+
+              print(f"Botones encontrados: {buttons.count()}")
+
+              for i in range(buttons.count()):
+                  try:
+                      element = buttons.nth(i)
+
+                      print(
+                          f"BOTÓN #{i} | "
+                          f"text={element.inner_text().strip()[:100]!r} | "
+                          f"type={element.get_attribute('type')} | "
+                          f"aria={element.get_attribute('aria-label')}"
+                      )
+                  except Exception:
                       pass
 
               print()
-              print(
-                  "Contenedores encontrados:",
-                  encontrados
-              )
+              print("=" * 70)
+              print("5. BUSCANDO BOTÓN DOWNLOAD")
+              print("=" * 70)
 
-              # ==========================================================
-              # 12. BUSCAR MEDIA
-              # ==========================================================
+              download_button = None
 
-              print()
-              print("=" * 80)
-              print("12. MEDIA EN LA PÁGINA")
-              print("=" * 80)
-
-              selectors = [
-                  "img",
-                  "video",
-                  "source",
-                  "a[href]"
+              candidates = [
+                  page.get_by_text("Download", exact=True),
+                  page.get_by_text("Descargar", exact=True),
+                  page.locator("button[type='submit']"),
+                  page.locator("input[type='submit']")
               ]
 
-              for selector in selectors:
-
-                  locator = page.locator(
-                      selector
-                  )
-
-                  print()
-                  print(
-                      selector,
-                      "=>",
-                      locator.count()
-                  )
-
-                  for i in range(
-                      min(locator.count(), 200)
-                  ):
-
-                      el = locator.nth(i)
-
-                      try:
-
-                          attrs = el.evaluate(
-                              """el => {
-                                  const r = {};
-                                  for (const a of el.attributes) {
-                                      r[a.name] = a.value;
-                                  }
-                                  return r;
-                              }"""
-                          )
-
-                          serialized = json.dumps(
-                              attrs,
-                              ensure_ascii=False
-                          )
-
-                          if (
-                              "media.sssinstagram.com"
-                              in serialized
-                          ):
-
-                              print()
-                              print(
-                                  f"{selector} #{i}"
-                              )
-
-                              print(
-                                  serialized[:5000]
-                              )
-
-                      except:
-
-                          pass
-
-              # ==========================================================
-              # 13. BOTONES DESCARGAR
-              # ==========================================================
-
-              print()
-              print("=" * 80)
-              print("13. TODOS LOS BOTONES 'DESCARGAR'")
-              print("=" * 80)
-
-              descargar_all = page.get_by_text(
-                  "Descargar",
-                  exact=True
-              )
-
-              print(
-                  "Cantidad:",
-                  descargar_all.count()
-              )
-
-              for i in range(
-                  min(descargar_all.count(), 50)
-              ):
-
+              for candidate in candidates:
                   try:
-
-                      el = descargar_all.nth(i)
-
-                      print()
-                      print(
-                          f"DESCARGAR #{i}"
-                      )
-
-                      print(
-                          "tag:",
-                          el.evaluate(
-                              "el => el.tagName"
-                          )
-                      )
-
-                      print(
-                          "class:",
-                          el.get_attribute("class")
-                      )
-
-                      print(
-                          "href:",
-                          el.get_attribute("href")
-                      )
-
-                      print(
-                          "HTML:"
-                      )
-
-                      print(
-                          el.evaluate(
-                              "el => el.outerHTML"
-                          )[:5000]
-                      )
-
-                  except:
-
+                      if candidate.count() > 0:
+                          download_button = candidate.first
+                          print("✅ Botón encontrado.")
+                          break
+                  except Exception:
                       pass
 
-              # ==========================================================
-              # 14. TEXTO VISIBLE
-              # ==========================================================
+              if download_button is None:
+                  print("❌ No se encontró botón Download/Descargar.")
 
-              print()
-              print("=" * 80)
-              print("14. TEXTO VISIBLE")
-              print("=" * 80)
-
-              body_text = page.locator(
-                  "body"
-              ).inner_text()
-
-              print(
-                  body_text[:20000]
-              )
-
-              # ==========================================================
-              # 15. GUARDAR HTML Y SCREENSHOT
-              # ==========================================================
-
-              print()
-              print("=" * 80)
-              print("15. GUARDANDO HTML Y SCREENSHOT")
-              print("=" * 80)
-
-              with open(
-                  "sssinstagram-debug.html",
-                  "w",
-                  encoding="utf-8"
-              ) as f:
-
-                  f.write(
-                      page.content()
+                  page.screenshot(
+                      path="snapgram-debug.png",
+                      full_page=True
                   )
 
+                  Path("snapgram-debug.html").write_text(
+                      page.content(),
+                      encoding="utf-8"
+                  )
+
+                  browser.close()
+                  raise SystemExit(1)
+
+              print(
+                  f"Texto del botón: "
+                  f"{download_button.inner_text().strip()!r}"
+              )
+
+              print()
+              print("=" * 70)
+              print("6. HACIENDO CLIC")
+              print("=" * 70)
+
+              try:
+                  download_button.click()
+                  print("✅ Clic realizado.")
+              except Exception as e:
+                  print(f"⚠️ Error al hacer clic: {e}")
+
+              print()
+              print("=" * 70)
+              print("7. ESPERANDO RESULTADOS")
+              print("=" * 70)
+
+              for i in range(15):
+                  time.sleep(2)
+
+                  print(
+                      f"Espera {i + 1}/15 | "
+                      f"URL={page.url}"
+                  )
+
+                  try:
+                      text = page.locator("body").inner_text()
+
+                      interesting = []
+
+                      for line in text.splitlines():
+                          line = line.strip()
+
+                          if not line:
+                              continue
+
+                          lower = line.lower()
+
+                          if any(
+                              word in lower
+                              for word in [
+                                  "download",
+                                  "descargar",
+                                  "story",
+                                  "histor",
+                                  ACCOUNT.lower(),
+                                  "mp4",
+                                  "jpg"
+                              ]
+                          ):
+                              interesting.append(line)
+
+                      print(
+                          "Texto relevante:"
+                      )
+
+                      for line in interesting[:30]:
+                          print(f"  {line}")
+
+                  except Exception:
+                      pass
+
+              print()
+              print("=" * 70)
+              print("8. RESULTADO FINAL")
+              print("=" * 70)
+
+              print(f"URL final: {page.url}")
+              print(f"Título final: {page.title()}")
+
+              print()
+              print("CANTIDAD DE ELEMENTOS")
+              print("-" * 70)
+
+              selectors = [
+                  ("video", "video"),
+                  ("source", "source"),
+                  ("img", "img"),
+                  ("a", "a"),
+                  ("button", "button"),
+                  ("iframe", "iframe"),
+                  ("article", "article"),
+                  ("section", "section")
+              ]
+
+              for name, selector in selectors:
+                  try:
+                      print(
+                          f"{name}: "
+                          f"{page.locator(selector).count()}"
+                      )
+                  except Exception:
+                      print(f"{name}: error")
+
+              print()
+              print("=" * 70)
+              print("9. VIDEOS")
+              print("=" * 70)
+
+              videos = page.locator("video")
+
+              print(f"Videos encontrados: {videos.count()}")
+
+              for i in range(videos.count()):
+                  try:
+                      video = videos.nth(i)
+
+                      print(
+                          f"VIDEO #{i}"
+                      )
+
+                      print(
+                          f"  src: "
+                          f"{video.get_attribute('src')}"
+                      )
+
+                      print(
+                          f"  poster: "
+                          f"{video.get_attribute('poster')}"
+                      )
+
+                      print(
+                          f"  outerHTML: "
+                          f"{video.evaluate('(el) => el.outerHTML')[:2000]}"
+                      )
+
+                  except Exception as e:
+                      print(f"VIDEO #{i}: error {e}")
+
+              print()
+              print("=" * 70)
+              print("10. IMÁGENES")
+              print("=" * 70)
+
+              images = page.locator("img")
+
+              print(f"Imágenes encontradas: {images.count()}")
+
+              for i in range(images.count()):
+                  try:
+                      image = images.nth(i)
+
+                      src = image.get_attribute("src") or ""
+                      alt = image.get_attribute("alt") or ""
+
+                      if (
+                          "instagram" in src.lower()
+                          or "media" in src.lower()
+                          or "story" in src.lower()
+                          or "image" in src.lower()
+                          or "story" in alt.lower()
+                      ):
+                          print(
+                              f"IMG #{i} | "
+                              f"alt={alt!r} | "
+                              f"src={src[:500]}"
+                          )
+
+                  except Exception:
+                      pass
+
+              print()
+              print("=" * 70)
+              print("11. ENLACES DE DESCARGA")
+              print("=" * 70)
+
+              links = page.locator("a")
+
+              relevant_links = []
+
+              for i in range(links.count()):
+                  try:
+                      link = links.nth(i)
+
+                      text = link.inner_text().strip()
+                      href = link.get_attribute("href") or ""
+
+                      combined = (
+                          text + " " + href
+                      ).lower()
+
+                      if any(
+                          word in combined
+                          for word in [
+                              "download",
+                              "descargar",
+                              ".mp4",
+                              ".jpg",
+                              ".jpeg",
+                              ".png",
+                              "media",
+                              "story"
+                          ]
+                      ):
+                          relevant_links.append(
+                              (i, text, href)
+                          )
+
+                  except Exception:
+                      pass
+
+              print(
+                  f"Enlaces relevantes: "
+                  f"{len(relevant_links)}"
+              )
+
+              for i, text, href in relevant_links:
+                  print(
+                      f"A #{i} | "
+                      f"text={text!r} | "
+                      f"href={href[:1000]}"
+                  )
+
+              print()
+              print("=" * 70)
+              print("12. BUSCANDO URLs DE MEDIOS EN TODO EL DOM")
+              print("=" * 70)
+
+              html = page.content()
+
+              keywords = [
+                  "http://",
+                  "https://",
+                  ".mp4",
+                  ".jpg",
+                  ".jpeg",
+                  ".png",
+                  "media",
+                  "video"
+              ]
+
+              found_urls = set()
+
+              import re
+
+              urls = re.findall(
+                  r'https?://[^"\'<>\s]+',
+                  html
+              )
+
+              for url in urls:
+                  clean = (
+                      url
+                      .replace("&amp;", "&")
+                  )
+
+                  lower = clean.lower()
+
+                  if any(
+                      key in lower
+                      for key in [
+                          ".mp4",
+                          ".jpg",
+                          ".jpeg",
+                          ".png",
+                          "media.",
+                          "cdn",
+                          "video"
+                      ]
+                  ):
+                      found_urls.add(clean)
+
+              print(
+                  f"URLs de medios encontradas: "
+                  f"{len(found_urls)}"
+              )
+
+              for url in list(found_urls)[:100]:
+                  print(url[:1500])
+
+              print()
+              print("=" * 70)
+              print("13. TEXTO DE LA PÁGINA")
+              print("=" * 70)
+
+              body_text = page.locator("body").inner_text()
+
+              lines = [
+                  line.strip()
+                  for line in body_text.splitlines()
+                  if line.strip()
+              ]
+
+              print(
+                  f"Total de líneas: {len(lines)}"
+              )
+
+              for line in lines[:250]:
+                  print(line)
+
+              print()
+              print("=" * 70)
+              print("14. GUARDANDO HTML Y SCREENSHOT")
+              print("=" * 70)
+
+              Path(
+                  "snapgram-debug.html"
+              ).write_text(
+                  page.content(),
+                  encoding="utf-8"
+              )
+
               page.screenshot(
-                  path="sssinstagram-debug.png",
+                  path="snapgram-debug.png",
                   full_page=True
               )
 
-              print(
-                  "HTML guardado."
-              )
-
-              print(
-                  "Screenshot guardado."
-              )
-
-              # ==========================================================
-              # FINAL
-              # ==========================================================
-
-              print()
-              print("=" * 80)
-              print("DIAGNÓSTICO TERMINADO")
-              print("=" * 80)
-
-              print(
-                  "NO se modificó el monitor."
-              )
-
-              print(
-                  "NO se modificó instagram-state.json."
-              )
-
-              print(
-                  "NO se envió nada a Telegram."
-              )
+              print("HTML guardado.")
+              print("Screenshot guardado.")
 
               browser.close()
-          PY
 
-          python -u diagnostico.py
+          print()
+          print("=" * 70)
+          print("DIAGNÓSTICO TERMINADO")
+          print("=" * 70)
+          print("NO se modificó el monitor.")
+          print("NO se modificó instagram-state.json.")
+          print("NO se envió nada a Telegram.")
+          print("=" * 70)
 
-      - name: Guardar diagnóstico
-        if: always()
+      - name: Subir diagnóstico
         uses: actions/upload-artifact@v4
         with:
-          name: diagnostico-sssinstagram
+          name: snapgram-debug
           path: |
-            sssinstagram-debug.html
-            sssinstagram-debug.png
-          if-no-files-found: ignore
+            snapgram-debug.html
+            snapgram-debug.png
+          if-no-files-found: warn

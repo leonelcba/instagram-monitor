@@ -137,7 +137,9 @@ jobs:
                       return data.get("ok") is True
 
               except Exception as e:
-                  print(f"❌ Error enviando foto a Telegram: {e}")
+                  print(
+                      f"❌ Error enviando foto a Telegram: {e}"
+                  )
 
               return False
 
@@ -169,7 +171,9 @@ jobs:
                       return data.get("ok") is True
 
               except Exception as e:
-                  print(f"❌ Error enviando video a Telegram: {e}")
+                  print(
+                      f"❌ Error enviando video a Telegram: {e}"
+                  )
 
               return False
 
@@ -242,15 +246,22 @@ jobs:
                   )
 
                   destination = Path(
-                      str(destination_without_extension) + extension
+                      str(destination_without_extension)
+                      + extension
                   )
 
                   with open(destination, "wb") as f:
                       f.write(response.content)
 
                   if destination.stat().st_size == 0:
-                      print("❌ Archivo descargado vacío.")
-                      destination.unlink(missing_ok=True)
+                      print(
+                          "❌ Archivo descargado vacío."
+                      )
+
+                      destination.unlink(
+                          missing_ok=True
+                      )
+
                       return None
 
                   print(
@@ -265,7 +276,10 @@ jobs:
                   }
 
               except Exception as e:
-                  print(f"❌ Error descargando archivo: {e}")
+                  print(
+                      f"❌ Error descargando archivo: {e}"
+                  )
+
                   return None
 
 
@@ -422,12 +436,16 @@ jobs:
                       print(
                           f"⚠️ Error durante scroll interno: {e}"
                       )
+
                       moved = 0
 
                   time.sleep(1.2)
 
                   current_media = collect_media(page)
-                  current_count = len(current_media)
+
+                  current_count = len(
+                      current_media
+                  )
 
                   print(
                       f"Scroll interno "
@@ -452,11 +470,14 @@ jobs:
                       print(
                           "⏹️ No aparecen más Stories."
                       )
+
                       break
 
 
           def open_stories(page, account):
-              print("Abriendo SSSInstagram...")
+              print(
+                  "Abriendo SSSInstagram..."
+              )
 
               page.goto(
                   SSS_URL,
@@ -464,7 +485,7 @@ jobs:
                   timeout=60000
               )
 
-              time.sleep(2)
+              time.sleep(3)
 
               profile_url = (
                   f"https://www.instagram.com/{account}/"
@@ -479,11 +500,15 @@ jobs:
 
               if inputs.count() == 0:
                   print(
-                      "❌ No se encontró el campo de perfil."
+                      "❌ No se encontró "
+                      "el campo de perfil."
                   )
+
                   return False
 
-              inputs.first.fill(profile_url)
+              inputs.first.fill(
+                  profile_url
+              )
 
               time.sleep(1)
 
@@ -503,105 +528,86 @@ jobs:
 
               if buttons.count() == 0:
                   print(
-                      "❌ No se encontró el botón Descargar."
+                      "❌ No se encontró "
+                      "el botón Descargar."
                   )
+
                   return False
 
               buttons.first.click()
 
               print(
-                  "Esperando resultados..."
+                  "Esperando que SSSInstagram "
+                  "cargue el perfil..."
               )
 
               try:
-                  page.wait_for_timeout(5000)
-
-                  page.wait_for_function(
-                      """
-                      () => {
-                          return document.body.innerText
-                              .toLowerCase()
-                              .includes('stories');
-                      }
-                      """,
-                      timeout=30000
+                  page.wait_for_selector(
+                      "img.media-content__image",
+                      timeout=45000
                   )
+
+                  print(
+                      "✅ Se detectaron elementos "
+                      "multimedia de Stories."
+                  )
+
+                  return True
 
               except Exception:
+
                   print(
-                      "⚠️ No se pudo confirmar "
-                      "automáticamente la carga de Stories."
+                      "⚠️ Las Stories todavía "
+                      "no aparecen. "
+                      "Esperando más..."
                   )
 
-              time.sleep(2)
+                  for intento in range(1, 7):
 
-              return True
+                      time.sleep(5)
 
+                      try:
+                          count = page.locator(
+                              "img.media-content__image"
+                          ).count()
 
-          def click_stories_section(page):
-              print(
-                  "Buscando sección Stories..."
-              )
+                          print(
+                              f"Espera adicional "
+                              f"{intento}/6 | "
+                              f"elementos detectados: "
+                              f"{count}"
+                          )
 
-              patterns = [
-                  "STORIES",
-                  "Stories",
-                  "stories"
-              ]
+                          if count > 0:
 
-              for text in patterns:
+                              print(
+                                  "✅ Stories cargadas."
+                              )
 
-                  try:
-                      locator = page.get_by_text(
-                          text,
-                          exact=True
-                      )
+                              return True
 
-                      count = locator.count()
+                      except Exception:
+                          pass
 
-                      if count > 0:
+                  print(
+                      "❌ No se detectaron Stories "
+                      "después de esperar."
+                  )
 
-                          for i in range(
-                              min(count, 5)
-                          ):
-
-                              try:
-                                  locator.nth(i).click(
-                                      timeout=3000
-                                  )
-
-                                  print(
-                                      "✅ Se abrió la "
-                                      f"sección Stories usando: "
-                                      f"{text}"
-                                  )
-
-                                  time.sleep(2)
-
-                                  return True
-
-                              except Exception:
-                                  pass
-
-                  except Exception:
-                      pass
-
-              print(
-                  "⚠️ No se pudo hacer clic "
-                  "explícitamente en Stories. "
-                  "Continuando..."
-              )
-
-              return False
+                  return False
 
 
           def process_account(page, account, state):
               print()
               print("=" * 50)
-              print(f"CUENTA: {account}")
+              print(
+                  f"CUENTA: {account}"
+              )
               print("=" * 50)
 
-              account_state = state.get(account)
+              account_state = state.get(
+                  account
+              )
 
               if not isinstance(
                   account_state,
@@ -634,15 +640,15 @@ jobs:
               ):
                   return 0, 0
 
-              click_stories_section(page)
-
               print(
-                  "Buscando Stories..."
+                  "Buscando Stories directamente..."
               )
 
               time.sleep(2)
 
-              initial_media = collect_media(page)
+              initial_media = collect_media(
+                  page
+              )
 
               print(
                   "URLs multimedia encontradas "
@@ -650,9 +656,13 @@ jobs:
                   f"{len(initial_media)}"
               )
 
-              scroll_internal_containers(page)
+              scroll_internal_containers(
+                  page
+              )
 
-              media_items = collect_media(page)
+              media_items = collect_media(
+                  page
+              )
 
               print(
                   "URLs multimedia encontradas "
@@ -661,9 +671,11 @@ jobs:
               )
 
               if not media_items:
+
                   print(
                       "⚠️ No se encontraron Stories."
                   )
+
                   return 0, 0
 
               new_items = []
@@ -703,10 +715,12 @@ jobs:
                   media_url = download_url
 
                   if not media_url:
+
                       print(
                           "⚠️ Story sin enlace "
                           "Descargar. Se omite."
                       )
+
                       continue
 
                   temp_base = (
@@ -724,7 +738,9 @@ jobs:
 
                   path = downloaded["path"]
 
-                  file_hash = sha256_file(path)
+                  file_hash = sha256_file(
+                      path
+                  )
 
                   print(
                       f"SHA-256: {file_hash}"
@@ -738,33 +754,37 @@ jobs:
                   #   aunque ya estén en instagram-state.json.
                   #
                   # False:
-                  #   funcionamiento normal: solo envía Stories
-                  #   que todavía no estén registradas.
+                  #   funcionamiento normal.
                   # ==========================================
 
                   FORCE_RESEND = True
 
-                  if file_hash in known_hashes:
+                  if (
+                      file_hash in known_hashes
+                      and not FORCE_RESEND
+                  ):
 
-                      if FORCE_RESEND:
+                      print(
+                          "⏭️ Esta Story ya fue enviada."
+                      )
 
-                          print(
-                              "🔄 MODO PRUEBA: "
-                              "esta Story ya existe en el estado, "
-                              "pero será reenviada."
-                          )
+                      path.unlink(
+                          missing_ok=True
+                      )
 
-                      else:
+                      continue
 
-                          print(
-                              "⏭️ Esta Story ya fue enviada."
-                          )
+                  if (
+                      file_hash in known_hashes
+                      and FORCE_RESEND
+                  ):
 
-                          path.unlink(
-                              missing_ok=True
-                          )
-
-                          continue
+                      print(
+                          "🔄 MODO PRUEBA: "
+                          "esta Story ya existe "
+                          "en el estado, "
+                          "pero será reenviada."
+                      )
 
                   if not initialized:
 
@@ -788,11 +808,11 @@ jobs:
 
                   final_path = (
                       DOWNLOAD_DIR
-                      / f"{file_hash}{extension}"
+                      / f"{file_hash}"
+                      f"{extension}"
                   )
 
                   if final_path.exists():
-
                       final_path.unlink()
 
                   path.rename(
@@ -882,6 +902,7 @@ jobs:
 
                       try:
                           path.unlink()
+
                       except Exception:
                           pass
 
@@ -903,6 +924,7 @@ jobs:
 
                   try:
                       path.unlink()
+
                   except Exception:
                       pass
 

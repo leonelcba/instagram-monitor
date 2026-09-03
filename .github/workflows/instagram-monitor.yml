@@ -749,16 +749,20 @@ jobs:
                       f"SHA-256: {file_hash}"
                   )
 
-                  if file_hash in known_hashes:
-                      print(
-                          "⏭️ Esta Story ya fue enviada."
-                      )
+              # PRUEBA: ignorar temporalmente los hashes existentes
+              # para volver a enviar las Stories actuales.
+              FORCE_RESEND = True
 
-                      path.unlink(
-                          missing_ok=True
-                      )
+              if file_hash in known_hashes and not FORCE_RESEND:
+                  print(
+                      "⏭️ Esta Story ya fue enviada."
+                  )
 
-                      continue
+                  path.unlink(
+                      missing_ok=True
+                  )
+
+                  continue
 
                   if not initialized:
                       print(

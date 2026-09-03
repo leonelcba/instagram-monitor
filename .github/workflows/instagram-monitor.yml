@@ -1,4 +1,4 @@
-name: Instagram Stories Monitor
+name: Instagram Stories Monitor - DIAGNOSTICO
 
 on:
   workflow_dispatch:
@@ -12,16 +12,8 @@ jobs:
 
     steps:
 
-      # ============================================================
-      # CHECKOUT
-      # ============================================================
-
       - name: Checkout
         uses: actions/checkout@v4
-
-      # ============================================================
-      # PYTHON
-      # ============================================================
 
       - name: Instalar dependencias
         run: |
@@ -29,326 +21,34 @@ jobs:
           pip install playwright requests
           playwright install --with-deps chromium
 
-      # ============================================================
-      # CREAR MONITOR
-      # ============================================================
-
-      - name: Crear monitor
+      - name: Crear diagnóstico
         run: |
 
-          cat > monitor_instagram.py <<'PY'
+          cat > diagnostico.py <<'PY'
 
-          import os
           import json
           import time
-          import hashlib
-          import mimetypes
           from urllib.parse import urlparse
 
-          import requests
           from playwright.sync_api import sync_playwright
 
-
-          # ============================================================
-          # CONFIGURACIÓN
-          # ============================================================
-
           SNAPGRAM_URL = "https://www.snapgram.io/instagram-story-downloader/"
-
           ACCOUNTS_FILE = "data/instagram-accounts.json"
-          STATE_FILE = "data/instagram-state.json"
-
-          TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-          TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
-
-          # TRUE solamente para esta prueba.
-          # Cuando confirmemos que funciona correctamente:
-          # cambiar a False.
-          FORCE_RESEND = True
-
-
-          # ============================================================
-          # DOMINIOS VÁLIDOS
-          # ============================================================
-
-          # Instagram puede entregar los archivos desde distintos CDN.
-          # Permitimos Instagram y dominios CDN relacionados.
-          ALLOWED_MEDIA_HOSTS = (
-              "instagram.com",
-              "cdninstagram.com",
-              "fbcdn.net",
-              "fbsbx.com",
-          )
-
-
-          # ============================================================
-          # CARGAR CUENTAS
-          # ============================================================
 
           def load_accounts():
-
               with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
-                  accounts = json.load(f)
-
-              return accounts
-
-
-          # ============================================================
-          # CARGAR ESTADO
-          # ============================================================
-
-          def load_state():
-
-              if not os.path.exists(STATE_FILE):
-                  return {}
-
-              try:
-
-                  with open(STATE_FILE, "r", encoding="utf-8") as f:
-                      return json.load(f)
-
-              except Exception:
-
-                  return {}
-
-
-          # ============================================================
-          # GUARDAR ESTADO
-          # ============================================================
-
-          def save_state(state):
-
-              os.makedirs(
-                  os.path.dirname(STATE_FILE),
-                  exist_ok=True
-              )
-
-              with open(
-                  STATE_FILE,
-                  "w",
-                  encoding="utf-8"
-              ) as f:
-
-                  json.dump(
-                      state,
-                      f,
-                      indent=2,
-                      ensure_ascii=False
-                  )
-
-
-          # ============================================================
-          # SHA256
-          # ============================================================
-
-          def sha256_file(path):
-
-              h = hashlib.sha256()
-
-              with open(path, "rb") as f:
-
-                  while True:
-
-                      chunk = f.read(1024 * 1024)
-
-                      if not chunk:
-                          break
-
-                      h.update(chunk)
-
-              return h.hexdigest()
-
-
-          # ============================================================
-          # VALIDAR DOMINIO DE MEDIA
-          # ============================================================
-
-          def is_allowed_media_url(url):
-
-              if not url:
-                  return False
-
-              try:
-
-                  parsed = urlparse(url)
-
-                  host = (parsed.hostname or "").lower()
-
-                  if not host:
-                      return False
-
-                  # Instagram
-                  if host == "instagram.com":
-                      return True
-
-                  if host.endswith(".instagram.com"):
-                      return True
-
-                  # CDN Instagram
-                  if host == "cdninstagram.com":
-                      return True
-
-                  if host.endswith(".cdninstagram.com"):
-                      return True
-
-                  # Facebook CDN usado por Instagram
-                  if host == "fbcdn.net":
-                      return True
-
-                  if host.endswith(".fbcdn.net"):
-                      return True
-
-                  # Algunos archivos pueden aparecer en fbsbx
-                  if host == "fbsbx.com":
-                      return True
-
-                  if host.endswith(".fbsbx.com"):
-                      return True
-
-                  return False
-
-              except Exception:
-
-                  return False
-
-
-          # ============================================================
-          # VALIDAR CONTENT-TYPE
-          # ============================================================
-
-          def get_media_type(response):
-
-              content_type = (
-                  response.headers.get("Content-Type", "")
-                  .lower()
-                  .split(";")[0]
-                  .strip()
-              )
-
-              if content_type.startswith("video/"):
-                  return "video"
-
-              if content_type.startswith("image/"):
-                  return "photo"
-
-              return None
-
-
-          # ============================================================
-          # TELEGRAM
-          # ============================================================
-
-          def send_telegram(
-              file_path,
-              media_type,
-              username
-          ):
-
-              if media_type == "video":
-
-                  url = (
-                      f"https://api.telegram.org/"
-                      f"bot{TELEGRAM_BOT_TOKEN}/sendVideo"
-                  )
-
-                  field = "video"
-
-              else:
-
-                  url = (
-                      f"https://api.telegram.org/"
-                      f"bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
-                  )
-
-                  field = "photo"
-
-
-              caption = (
-                  "📱 Instagram Story\n"
-                  f"@{username}"
-              )
-
-
-              try:
-
-                  with open(file_path, "rb") as f:
-
-                      response = requests.post(
-                          url,
-                          data={
-                              "chat_id": TELEGRAM_CHAT_ID,
-                              "caption": caption
-                          },
-                          files={
-                              field: f
-                          },
-                          timeout=120
-                      )
-
-
-                  print(
-                      f"Telegram HTTP: {response.status_code}"
-                  )
-
-                  print(response.text)
-
-
-                  try:
-
-                      result = response.json()
-
-                  except Exception:
-
-                      result = {}
-
-
-                  if (
-                      response.status_code == 200
-                      and result.get("ok") is True
-                  ):
-
-                      print(
-                          "✅ Telegram confirmó el envío."
-                      )
-
-                      return True
-
-                  print(
-                      "❌ Telegram no confirmó el envío."
-                  )
-
-                  return False
-
-
-              except Exception as e:
-
-                  print(
-                      f"❌ Error enviando a Telegram: {e}"
-                  )
-
-                  return False
-
-
-          # ============================================================
-          # ABRIR SNAPGRAM
-          # ============================================================
+                  return json.load(f)
 
           def open_snapgram(page, username):
 
-              story_url = (
-                  f"https://www.instagram.com/"
-                  f"stories/{username}/"
-              )
+              story_url = f"https://www.instagram.com/stories/{username}/"
 
               print()
-              print("=" * 40)
-              print(username)
-              print("=" * 40)
+              print("=" * 50)
+              print(f"CUENTA: @{username}")
+              print("=" * 50)
 
-              print(
-                  "URL específica de Stories:"
-              )
-
+              print("URL:")
               print(story_url)
 
               page.goto(
@@ -359,60 +59,42 @@ jobs:
 
               page.wait_for_timeout(3000)
 
+              # Buscar campo
+              input_box = None
 
-              # --------------------------------------------------------
-              # BUSCAR INPUT
-              # --------------------------------------------------------
-
-              input_candidates = [
+              for selector in [
                   "input[type='text']",
                   "input",
                   "textarea"
-              ]
-
-              input_box = None
-
-              for selector in input_candidates:
+              ]:
 
                   try:
-
                       locator = page.locator(selector)
 
-                      if locator.count() > 0:
+                      for i in range(locator.count()):
 
-                          for i in range(locator.count()):
+                          candidate = locator.nth(i)
 
-                              candidate = locator.nth(i)
-
-                              if candidate.is_visible():
-
-                                  input_box = candidate
-                                  break
-
-                          if input_box:
+                          if candidate.is_visible():
+                              input_box = candidate
                               break
+
+                      if input_box:
+                          break
 
                   except Exception:
                       pass
 
-
               if not input_box:
-
                   raise RuntimeError(
-                      "No se encontró el campo de Snapgram."
+                      "No se encontró el campo."
                   )
-
 
               print("Campo encontrado.")
 
-
               input_box.fill(story_url)
 
-
-              # --------------------------------------------------------
-              # BOTÓN DOWNLOAD
-              # --------------------------------------------------------
-
+              # Buscar Download
               buttons = page.locator(
                   "button, input[type='submit'], a"
               )
@@ -439,11 +121,7 @@ jobs:
                           or ""
                       ).strip().lower()
 
-                      combined = (
-                          text + " " + value
-                      )
-
-                      if "download" in combined:
+                      if "download" in (text + " " + value):
 
                           download_button = b
                           break
@@ -451,193 +129,181 @@ jobs:
                   except Exception:
                       pass
 
-
               if not download_button:
-
                   raise RuntimeError(
-                      "No se encontró el botón Download."
+                      "No se encontró Download."
                   )
 
-
-              print(
-                  "Botón encontrado: Download"
-              )
-
+              print("Botón encontrado: Download")
 
               download_button.click()
 
-              print(
-                  "Download pulsado."
-              )
+              print("Download pulsado.")
 
+          def dump_elements(page):
 
-          # ============================================================
-          # OBTENER URLS DE MEDIA REALES
-          # ============================================================
+              print()
+              print("=" * 50)
+              print("DIAGNÓSTICO DEL DOM")
+              print("=" * 50)
 
-          def collect_media(page):
-
-              media = []
-              seen = set()
-
-
-              # ========================================================
-              # 1. BUSCAR VIDEOS
-              # ========================================================
-
+              # VIDEOS
               videos = page.locator("video")
 
-              video_count = videos.count()
-
+              print()
               print(
-                  f"Videos HTML encontrados: {video_count}"
+                  f"VIDEOS ENCONTRADOS: {videos.count()}"
               )
 
-
-              for i in range(video_count):
+              for i in range(videos.count()):
 
                   try:
 
                       video = videos.nth(i)
 
-                      src = (
+                      print()
+                      print(
+                          f"VIDEO #{i + 1}"
+                      )
+
+                      print(
+                          "src =",
                           video.get_attribute("src")
-                          or ""
-                      ).strip()
+                      )
 
+                      print(
+                          "poster =",
+                          video.get_attribute("poster")
+                      )
 
-                      if not src:
-                          continue
-
-
-                      # ------------------------------------------------
-                      # CRÍTICO:
-                      # solamente URLs de Instagram/CDN
-                      # ------------------------------------------------
-
-                      if not is_allowed_media_url(src):
-
-                          print(
-                              "⛔ Video descartado: "
-                              "dominio externo:"
+                      print(
+                          "currentSrc =",
+                          video.evaluate(
+                              "(el) => el.currentSrc"
                           )
+                      )
 
-                          print(src)
-
-                          continue
-
-
-                      # ------------------------------------------------
-                      # No duplicar
-                      # ------------------------------------------------
-
-                      if src in seen:
-                          continue
-
-
-                      seen.add(src)
-
-
-                      media.append({
-                          "type": "video",
-                          "url": src
-                      })
-
+                      print(
+                          "outerHTML =",
+                          video.evaluate(
+                              "(el) => el.outerHTML"
+                          )[:2000]
+                      )
 
                   except Exception as e:
 
                       print(
-                          f"Error leyendo video: {e}"
+                          "Error leyendo video:",
+                          e
                       )
 
-
-              # ========================================================
-              # 2. BUSCAR IMÁGENES
-              # ========================================================
-
+              # IMÁGENES
               images = page.locator("img")
 
-              image_count = images.count()
-
+              print()
               print(
-                  f"Imágenes HTML encontradas: {image_count}"
+                  f"IMAGENES ENCONTRADAS: {images.count()}"
               )
 
-
-              for i in range(image_count):
+              for i in range(images.count()):
 
                   try:
 
                       img = images.nth(i)
 
-                      src = (
+                      print()
+                      print(
+                          f"IMAGEN #{i + 1}"
+                      )
+
+                      print(
+                          "src =",
                           img.get_attribute("src")
-                          or ""
-                      ).strip()
+                      )
 
+                      print(
+                          "srcset =",
+                          img.get_attribute("srcset")
+                      )
 
-                      if not src:
-                          continue
+                      print(
+                          "alt =",
+                          img.get_attribute("alt")
+                      )
 
+                      print(
+                          "class =",
+                          img.get_attribute("class")
+                      )
 
-                      if not is_allowed_media_url(src):
+                      print(
+                          "width =",
+                          img.get_attribute("width")
+                      )
 
-                          continue
-
-
-                      # Evitar logos/avatar/iconos muy pequeños
-                      # solamente por atributos HTML.
-                      width = img.get_attribute("width")
-                      height = img.get_attribute("height")
-
-
-                      if width and height:
-
-                          try:
-
-                              w = int(width)
-                              h = int(height)
-
-                              if w <= 100 and h <= 100:
-
-                                  continue
-
-                          except Exception:
-                              pass
-
-
-                      if src in seen:
-                          continue
-
-
-                      seen.add(src)
-
-
-                      media.append({
-                          "type": "photo",
-                          "url": src
-                      })
-
+                      print(
+                          "height =",
+                          img.get_attribute("height")
+                      )
 
                   except Exception as e:
 
                       print(
-                          f"Error leyendo imagen: {e}"
+                          "Error leyendo imagen:",
+                          e
                       )
 
+              # ENLACES
+              links = page.locator("a")
 
-              return media
+              print()
+              print(
+                  f"ENLACES ENCONTRADOS: {links.count()}"
+              )
 
+              for i in range(links.count()):
 
-          # ============================================================
-          # SCROLL
-          # ============================================================
+                  try:
+
+                      a = links.nth(i)
+
+                      href = (
+                          a.get_attribute("href")
+                          or ""
+                      ).strip()
+
+                      text = (
+                          a.inner_text()
+                          .strip()
+                          .replace("\n", " ")
+                      )
+
+                      if href:
+
+                          print()
+                          print(
+                              f"LINK #{i + 1}"
+                          )
+
+                          print(
+                              "texto =",
+                              text[:300]
+                          )
+
+                          print(
+                              "href =",
+                              href[:2000]
+                          )
+
+                  except Exception:
+                      pass
 
           def scroll_internal(page):
 
-              print(
-                  "Buscando contenido adicional..."
-              )
+              print()
+              print("=" * 50)
+              print("BUSCANDO CONTENEDORES SCROLLABLES")
+              print("=" * 50)
 
               for n in range(10):
 
@@ -656,12 +322,9 @@ jobs:
                           const style =
                               window.getComputedStyle(el);
 
-                          const overflowY =
-                              style.overflowY;
-
                           if (
-                              overflowY !== "auto" &&
-                              overflowY !== "scroll"
+                              style.overflowY !== "auto" &&
+                              style.overflowY !== "scroll"
                           ) {
                               continue;
                           }
@@ -676,14 +339,18 @@ jobs:
                                   el.scrollHeight >
                                   best.scrollHeight
                               ) {
-
                                   best = el;
                               }
+
                           }
+
                       }
 
                       if (!best) {
-                          return 0;
+                          return {
+                              moved: 0,
+                              found: false
+                          };
                       }
 
                       const before =
@@ -691,677 +358,40 @@ jobs:
 
                       best.scrollTop +=
                           Math.max(
-                              400,
+                              500,
                               best.clientHeight
                           );
 
-                      return (
-                          best.scrollTop - before
-                      );
+                      return {
+                          moved:
+                              best.scrollTop - before,
+                          found: true,
+                          scrollTop:
+                              best.scrollTop,
+                          scrollHeight:
+                              best.scrollHeight,
+                          clientHeight:
+                              best.clientHeight
+                      };
                   }
                   """)
 
                   print(
-                      f"Scroll {n + 1}/10 | "
-                      f"movidos={moved}"
+                      f"Scroll {n + 1}/10:",
+                      moved
                   )
 
-                  page.wait_for_timeout(1000)
-
-
-          # ============================================================
-          # ESPERAR RESULTADOS
-          # ============================================================
-
-          def wait_for_results(page):
-
-              for n in range(20):
-
-                  media = collect_media(page)
-
-                  print(
-                      f"Espera {n + 1}/20 | "
-                      f"resultados={len(media)}"
-                  )
-
-                  if media:
-
-                      print(
-                          f"  → resultados detectados: "
-                          f"{len(media)}"
-                      )
-
-                      print(
-                          "✅ Resultados detectados."
-                      )
-
-                      return media
-
-                  page.wait_for_timeout(1000)
-
-
-              return []
-
-
-          # ============================================================
-          # DESCARGAR MEDIA
-          # ============================================================
-
-          def download_media(
-              url,
-              expected_type,
-              output_path
-          ):
-
-              print(url)
-
-
-              # --------------------------------------------------------
-              # PRIMER FILTRO: DOMINIO
-              # --------------------------------------------------------
-
-              if not is_allowed_media_url(url):
-
-                  print(
-                      "⛔ DESCARTADO: "
-                      "URL externa a Instagram."
-                  )
-
-                  return None
-
-
-              try:
-
-                  response = requests.get(
-                      url,
-                      timeout=120,
-                      allow_redirects=True,
-                      stream=True,
-                      headers={
-                          "User-Agent":
-                          "Mozilla/5.0"
-                      }
-                  )
-
-
-                  print(
-                      f"HTTP: {response.status_code}"
-                  )
-
-
-                  if response.status_code != 200:
-
-                      print(
-                          "⛔ DESCARTADO: "
-                          "HTTP no válido."
-                      )
-
-                      return None
-
-
-                  # ----------------------------------------------------
-                  # SEGUNDO FILTRO:
-                  # COMPROBAR URL FINAL
-                  # ----------------------------------------------------
-
-                  final_url = response.url
-
-                  if not is_allowed_media_url(
-                      final_url
-                  ):
-
-                      print(
-                          "⛔ DESCARTADO: "
-                          "redirección a dominio externo."
-                      )
-
-                      print(
-                          final_url
-                      )
-
-                      return None
-
-
-                  # ----------------------------------------------------
-                  # TERCER FILTRO:
-                  # CONTENT-TYPE
-                  # ----------------------------------------------------
-
-                  media_type = get_media_type(
-                      response
-                  )
-
-                  content_type = (
-                      response.headers.get(
-                          "Content-Type",
-                          ""
-                      )
-                  )
-
-                  print(
-                      f"Content-Type: "
-                      f"{content_type}"
-                  )
-
-
-                  if media_type is None:
-
-                      print(
-                          "⛔ DESCARTADO: "
-                          "el contenido no es multimedia."
-                      )
-
-                      return None
-
-
-                  # ----------------------------------------------------
-                  # COMPROBAR QUE COINCIDA
-                  # ----------------------------------------------------
-
-                  if media_type != expected_type:
-
-                      print(
-                          "⛔ DESCARTADO: "
-                          "tipo inesperado."
-                      )
-
-                      return None
-
-
-                  # ----------------------------------------------------
-                  # GUARDAR
-                  # ----------------------------------------------------
-
-                  total = 0
-
-                  with open(
-                      output_path,
-                      "wb"
-                  ) as f:
-
-                      for chunk in response.iter_content(
-                          chunk_size=1024 * 1024
-                      ):
-
-                          if chunk:
-
-                              f.write(chunk)
-
-                              total += len(chunk)
-
-
-                  print(
-                      f"Tamaño: "
-                      f"{total / 1024 / 1024:.2f} MB"
-                  )
-
-
-                  # ----------------------------------------------------
-                  # COMPROBAR ARCHIVO REAL
-                  # ----------------------------------------------------
-
-                  if total < 100:
-
-                      print(
-                          "⛔ DESCARTADO: "
-                          "archivo demasiado pequeño."
-                      )
-
-                      try:
-                          os.remove(output_path)
-                      except Exception:
-                          pass
-
-                      return None
-
-
-                  # ----------------------------------------------------
-                  # MAGIC BYTES
-                  # ----------------------------------------------------
-
-                  with open(
-                      output_path,
-                      "rb"
-                  ) as f:
-
-                      header = f.read(32)
-
-
-                  if media_type == "video":
-
-                      # MP4 normalmente contiene "ftyp"
-                      # dentro de los primeros bytes.
-                      if b"ftyp" not in header:
-
-                          print(
-                              "⛔ DESCARTADO: "
-                              "no parece un MP4 válido."
-                          )
-
-                          try:
-                              os.remove(output_path)
-                          except Exception:
-                              pass
-
-                          return None
-
-
-                  elif media_type == "photo":
-
-                      valid_image = (
-                          header.startswith(b"\xff\xd8\xff")
-                          or
-                          header.startswith(b"\x89PNG")
-                          or
-                          header.startswith(b"RIFF")
-                      )
-
-                      if not valid_image:
-
-                          print(
-                              "⛔ DESCARTADO: "
-                              "no parece una imagen válida."
-                          )
-
-                          try:
-                              os.remove(output_path)
-                          except Exception:
-                              pass
-
-                          return None
-
-
-                  return media_type
-
-
-              except Exception as e:
-
-                  print(
-                      f"❌ Error descargando media: {e}"
-                  )
-
-                  try:
-                      if os.path.exists(output_path):
-                          os.remove(output_path)
-                  except Exception:
-                      pass
-
-                  return None
-
-
-          # ============================================================
-          # PROCESAR CUENTA
-          # ============================================================
-
-          def process_account(
-              page,
-              username,
-              state
-          ):
-
-              print()
-              print("-" * 40)
-
-              print(
-                  f"Cuenta: @{username}"
-              )
-
-
-              account_state = state.get(
-                  username,
-                  {}
-              )
-
-
-              known_hashes = account_state.get(
-                  "hashes",
-                  []
-              )
-
-
-              initialized = account_state.get(
-                  "initialized",
-                  False
-              )
-
-
-              print(
-                  f"Hashes conocidos: "
-                  f"{len(known_hashes)}"
-              )
-
-              print(
-                  f"Inicializada: "
-                  f"{initialized}"
-              )
-
-
-              open_snapgram(
-                  page,
-                  username
-              )
-
-
-              media = wait_for_results(
-                  page
-              )
-
-
-              if not media:
-
-                  print(
-                      "⚠️ No se encontraron Stories."
-                  )
-
-                  return 0
-
-
-              # --------------------------------------------------------
-              # SCROLL ADICIONAL
-              # --------------------------------------------------------
-
-              scroll_internal(page)
-
-              media = collect_media(page)
-
-
-              # --------------------------------------------------------
-              # DEDUPLICAR
-              # --------------------------------------------------------
-
-              unique_media = []
-              seen_urls = set()
-
-              for item in media:
-
-                  url = item["url"]
-
-                  if url in seen_urls:
-                      continue
-
-                  seen_urls.add(url)
-
-                  unique_media.append(item)
-
-
-              media = unique_media
-
-
-              video_count = sum(
-                  1
-                  for x in media
-                  if x["type"] == "video"
-              )
-
-
-              photo_count = sum(
-                  1
-                  for x in media
-                  if x["type"] == "photo"
-              )
-
-
-              print()
-              print(
-                  f"TOTAL FINAL: {len(media)}"
-              )
-
-              print(
-                  f"Videos: {video_count}"
-              )
-
-              print(
-                  f"Fotos: {photo_count}"
-              )
-
-
-              if not media:
-
-                  print(
-                      "⚠️ No se encontraron Stories."
-                  )
-
-                  return 0
-
-
-              os.makedirs(
-                  "downloads",
-                  exist_ok=True
-              )
-
-
-              sent_count = 0
-
-
-              # ========================================================
-              # DESCARGAR CADA RESULTADO
-              # ========================================================
-
-              for index, item in enumerate(
-                  media,
-                  start=1
-              ):
-
-                  media_type = item["type"]
-                  url = item["url"]
-
-
-                  print()
-
-                  print(
-                      f"Descargando "
-                      f"{media_type} #{index}"
-                  )
-
-
-                  if media_type == "video":
-
-                      filename = (
-                          f"{username}_{index}.mp4"
-                      )
-
-                  else:
-
-                      filename = (
-                          f"{username}_{index}.jpg"
-                      )
-
-
-                  output_path = os.path.join(
-                      "downloads",
-                      filename
-                  )
-
-
-                  real_type = download_media(
-                      url,
-                      media_type,
-                      output_path
-                  )
-
-
-                  if real_type is None:
-
-                      print(
-                          "⛔ Media descartada."
-                      )
-
-                      continue
-
-
-                  file_hash = sha256_file(
-                      output_path
-                  )
-
-
-                  print(
-                      f"SHA-256: {file_hash}"
-                  )
-
-
-                  # ====================================================
-                  # NUEVA CUENTA
-                  # ====================================================
-
-                  if not initialized:
-
-                      print(
-                          "🆕 Cuenta nueva."
-                      )
-
-                      print(
-                          "Se registra la Story "
-                          "sin enviarla."
-                      )
-
-                      if file_hash not in known_hashes:
-
-                          known_hashes.append(
-                              file_hash
-                          )
-
-                      try:
-                          os.remove(output_path)
-                      except Exception:
-                          pass
-
-                      continue
-
-
-                  # ====================================================
-                  # YA CONOCIDA
-                  # ====================================================
-
-                  if (
-                      not FORCE_RESEND
-                      and
-                      file_hash in known_hashes
-                  ):
-
-                      print(
-                          "⏭️ Story ya conocida."
-                      )
-
-                      try:
-                          os.remove(output_path)
-                      except Exception:
-                          pass
-
-                      continue
-
-
-                  if FORCE_RESEND:
-
-                      print(
-                          "🔄 FORCE_RESEND: "
-                          "se reenviará."
-                      )
-
-
-                  # ====================================================
-                  # TELEGRAM
-                  # ====================================================
-
-                  success = send_telegram(
-                      output_path,
-                      media_type,
-                      username
-                  )
-
-
-                  # ====================================================
-                  # SOLO GUARDAR HASH SI TELEGRAM CONFIRMÓ
-                  # ====================================================
-
-                  if success:
-
-                      if file_hash not in known_hashes:
-
-                          known_hashes.append(
-                              file_hash
-                          )
-
-                      sent_count += 1
-
-
-                  # ----------------------------------------------------
-                  # LIMPIAR
-                  # ----------------------------------------------------
-
-                  try:
-                      os.remove(output_path)
-                  except Exception:
-                      pass
-
-
-              # ========================================================
-              # ACTUALIZAR ESTADO
-              # ========================================================
-
-              account_state["initialized"] = True
-
-              account_state["hashes"] = (
-                  known_hashes[-100:]
-              )
-
-
-              state[username] = account_state
-
-
-              print()
-
-              print(
-                  f"Estado de @{username}: "
-                  f"{len(account_state['hashes'])} hashes."
-              )
-
-              print(
-                  f"Enviadas: {sent_count}"
-              )
-
-
-              return sent_count
-
-
-          # ============================================================
-          # MAIN
-          # ============================================================
+                  page.wait_for_timeout(1500)
 
           def main():
 
-              print()
-              print("=" * 56)
-              print("INSTAGRAM STORIES MONITOR")
-              print("DESCARGADOR: SNAPGRAM")
-              print("MODO: SOLO STORIES")
-              print("=" * 56)
-
-              print(
-                  f"🔄 FORCE_RESEND: "
-                  f"{FORCE_RESEND}"
-              )
-
-
               accounts = load_accounts()
 
-              state = load_state()
-
-
-              print(
-                  f"Cuentas configuradas: "
-                  f"{len(accounts)}"
-              )
-
-
-              for username in accounts:
-
-                  print(
-                      f"  - @{username}"
-                  )
-
-
-              total_sent = 0
-
+              print()
+              print("=" * 60)
+              print("INSTAGRAM STORIES - DIAGNOSTICO")
+              print("DESCARGADOR: SNAPGRAM")
+              print("=" * 60)
 
               with sync_playwright() as p:
 
@@ -1384,105 +414,82 @@ jobs:
                       )
                   )
 
-
                   page = context.new_page()
-
 
                   for username in accounts:
 
                       try:
 
-                          sent = process_account(
+                          open_snapgram(
                               page,
-                              username,
-                              state
+                              username
                           )
 
-                          total_sent += sent
+                          # Esperar a que aparezcan resultados
+                          print()
+                          print(
+                              "Esperando resultados..."
+                          )
 
+                          for n in range(15):
+
+                              print(
+                                  f"Espera {n + 1}/15"
+                              )
+
+                              page.wait_for_timeout(1000)
+
+                              # Contar elementos
+                              v = page.locator(
+                                  "video"
+                              ).count()
+
+                              im = page.locator(
+                                  "img"
+                              ).count()
+
+                              print(
+                                  f"  videos={v} "
+                                  f"imagenes={im}"
+                              )
+
+                              if v > 0 or im > 0:
+
+                                  if n >= 1:
+                                      break
+
+                          dump_elements(page)
+
+                          scroll_internal(page)
+
+                          print()
+                          print(
+                              "DOM DESPUES DEL SCROLL"
+                          )
+
+                          dump_elements(page)
 
                       except Exception as e:
 
                           print()
-
                           print(
-                              f"❌ Error procesando "
-                              f"@{username}:"
+                              f"ERROR @{username}:"
                           )
-
                           print(e)
 
-
-                      # Separación entre cuentas
                       page.wait_for_timeout(2000)
 
-
                   browser.close()
-
-
-              save_state(state)
-
-
-              print()
-              print("=" * 56)
-              print("RESUMEN")
-              print("=" * 56)
-
-              print(
-                  f"Cuentas procesadas: "
-                  f"{len(accounts)}"
-              )
-
-              print(
-                  f"Stories enviadas: "
-                  f"{total_sent}"
-              )
-
-              print(
-                  f"Estado guardado: "
-                  f"{STATE_FILE}"
-              )
-
 
           if __name__ == "__main__":
               main()
 
           PY
 
-
-      # ============================================================
-      # COMPROBAR SINTAXIS
-      # ============================================================
-
       - name: Comprobar sintaxis
         run: |
-          python -m py_compile monitor_instagram.py
+          python -m py_compile diagnostico.py
 
-
-      # ============================================================
-      # EJECUTAR MONITOR
-      # ============================================================
-
-      - name: Ejecutar monitor
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - name: Ejecutar diagnóstico
         run: |
-          python monitor_instagram.py
-
-
-      # ============================================================
-      # GUARDAR ESTADO
-      # ============================================================
-
-      - name: Guardar estado en GitHub
-        run: |
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add data/instagram-state.json
-
-          git diff --cached --quiet || git commit -m "Actualizar estado Instagram Stories"
-
-          git push
+          python diagnostico.py

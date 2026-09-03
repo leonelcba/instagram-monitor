@@ -11,25 +11,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
-      # ============================================================
-      # 1. DESCARGAR EL REPOSITORIO
-      # ============================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ============================================================
-      # 2. INSTALAR DEPENDENCIAS
-      # ============================================================
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
           pip install playwright requests
           playwright install chromium
 
-      # ============================================================
-      # 3. CREAR MONITOR
-      # ============================================================
       - name: Crear monitor
         run: |
           cat > monitor_instagram.py <<'PY'
@@ -37,17 +27,12 @@ jobs:
           import json
           import time
           import hashlib
-          import mimetypes
           from pathlib import Path
           from urllib.parse import urlparse
 
           import requests
           from playwright.sync_api import sync_playwright
 
-
-          # ============================================================
-          # CONFIGURACIÓN
-          # ============================================================
 
           SSS_URL = "https://sssinstagram.com/es/story-saver"
 
@@ -58,40 +43,19 @@ jobs:
           TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
           TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-          # ------------------------------------------------------------
-          # IMPORTANTE:
-          #
-          # True  = vuelve a enviar Stories que ya están en el estado.
-          # False = comportamiento normal, solamente Stories nuevas.
-          #
-          # Lo dejamos en True SOLO para esta prueba.
-          # ------------------------------------------------------------
+          # TRUE solamente para esta prueba.
+          # Después lo cambiaremos a FALSE.
           FORCE_RESEND = True
 
 
-          # ============================================================
-          # UTILIDADES
-          # ============================================================
-
-          def clean_account(account):
-              account = account.strip()
-              account = account.lstrip("@")
-              return account
-
-
           def load_accounts():
-              if not ACCOUNTS_FILE.exists():
-                  raise FileNotFoundError(
-                      f"No existe {ACCOUNTS_FILE}"
-                  )
-
               with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
                   accounts = json.load(f)
 
               return [
-                  clean_account(x)
-                  for x in accounts
-                  if str(x).strip()
+                  str(account).strip().lstrip("@")
+                  for account in accounts
+                  if str(account).strip()
               ]
 
 
@@ -101,15 +65,8 @@ jobs:
 
               try:
                   with open(STATE_FILE, "r", encoding="utf-8") as f:
-                      data = json.load(f)
-
-                  if not isinstance(data, dict):
-                      return {}
-
-                  return data
-
-              except Exception as e:
-                  print(f"⚠️ No se pudo leer el estado: {e}")
+                      return json.load(f)
+              except Exception:
                   return {}
 
 
@@ -119,10 +76,8 @@ jobs:
                   exist_ok=True
               )
 
-              temp_file = STATE_FILE.with_suffix(".tmp")
-
               with open(
-                  temp_file,
+                  STATE_FILE,
                   "w",
                   encoding="utf-8"
               ) as f:
@@ -133,11 +88,9 @@ jobs:
                       indent=2
                   )
 
-              temp_file.replace(STATE_FILE)
 
-
-          def file_sha256(path):
-              sha256 = hashlib.sha256()
+          def sha256_file(path):
+              h = hashlib.sha256()
 
               with open(path, "rb") as f:
                   while True:
@@ -146,24 +99,21 @@ jobs:
                       if not chunk:
                           break
 
-                      sha256.update(chunk)
+                      h.update(chunk)
 
-              return sha256.hexdigest()
+              return h.hexdigest()
 
 
-          def get_extension(content_type, url):
+          def extension_from_response(content_type, url):
               content_type = (
-                  content_type or ""
-              ).lower().split(";")[0].strip()
-
-              if content_type == "video/mp4":
-                  return ".mp4"
+                  content_type
+                  .lower()
+                  .split(";")[0]
+                  .strip()
+              )
 
               if content_type.startswith("video/"):
                   return ".mp4"
-
-              if content_type == "image/jpeg":
-                  return ".jpg"
 
               if content_type == "image/png":
                   return ".png"
@@ -171,8 +121,10 @@ jobs:
               if content_type == "image/webp":
                   return ".webp"
 
-              parsed = urlparse(url)
-              path = parsed.path.lower()
+              if content_type.startswith("image/"):
+                  return ".jpg"
+
+              path = urlparse(url).path.lower()
 
               if ".mp4" in path:
                   return ".mp4"
@@ -189,26 +141,41 @@ jobs:
               return ".jpg"
 
 
-          # ============================================================
-          # TELEGRAM
-          # ============================================================
-
-          def telegram_request(method, files=None, data=None):
+          def telegram(method, path, account, media_type):
               url = (
                   f"https://api.telegram.org/"
                   f"bot{TELEGRAM_BOT_TOKEN}/{method}"
               )
 
+              if media_type == "video":
+                  field = "video"
+                  mime = "video/mp4"
+                  caption = f"🎥 Story de @{account}"
+              else:
+                  field = "photo"
+                  mime = "image/jpeg"
+                  caption = f"📸 Story de @{account}"
+
               try:
-                  response = requests.post(
-                      url,
-                      data=data,
-                      files=files,
-                      timeout=180
-                  )
+                  with open(path, "rb") as f:
+                      response = requests.post(
+                          url,
+                          data={
+                              "chat_id": TELEGRAM_CHAT_ID,
+                              "caption": caption
+                          },
+                          files={
+                              field: (
+                                  path.name,
+                                  f,
+                                  mime
+                              )
+                          },
+                          timeout=180
+                      )
 
                   print(
-                      f"Telegram HTTP {response.status_code}"
+                      f"Telegram HTTP: {response.status_code}"
                   )
 
                   print(response.text)
@@ -218,95 +185,17 @@ jobs:
 
                   result = response.json()
 
-                  return bool(result.get("ok"))
+                  return result.get("ok") is True
 
               except Exception as e:
                   print(
-                      f"❌ Error comunicando con Telegram: {e}"
+                      f"❌ Error enviando a Telegram: {e}"
                   )
 
                   return False
 
 
-          def send_photo(path, account):
-              print(
-                  f"📸 Enviando foto de @{account}"
-              )
-
-              caption = (
-                  f"📸 Nueva Story de @{account}"
-              )
-
-              with open(path, "rb") as f:
-                  files = {
-                      "photo": (
-                          path.name,
-                          f,
-                          "image/jpeg"
-                      )
-                  }
-
-                  data = {
-                      "chat_id": TELEGRAM_CHAT_ID,
-                      "caption": caption
-                  }
-
-                  return telegram_request(
-                      "sendPhoto",
-                      files=files,
-                      data=data
-                  )
-
-
-          def send_video(path, account):
-              print(
-                  f"🎥 Enviando video de @{account}"
-              )
-
-              caption = (
-                  f"🎥 Nueva Story de @{account}"
-              )
-
-              with open(path, "rb") as f:
-                  files = {
-                      "video": (
-                          path.name,
-                          f,
-                          "video/mp4"
-                      )
-                  }
-
-                  data = {
-                      "chat_id": TELEGRAM_CHAT_ID,
-                      "caption": caption
-                  }
-
-                  return telegram_request(
-                      "sendVideo",
-                      files=files,
-                      data=data
-                  )
-
-
-          def send_media(path, account, media_type):
-              if media_type == "video":
-                  return send_video(
-                      path,
-                      account
-                  )
-
-              return send_photo(
-                  path,
-                  account
-              )
-
-
-          # ============================================================
-          # ABRIR STORIES EN SSINSTAGRAM
-          # ============================================================
-
           def open_stories(page, account):
-
               print("Abriendo SSSInstagram...")
 
               page.goto(
@@ -326,24 +215,15 @@ jobs:
                   f"Introduciendo perfil: {profile_url}"
               )
 
-              # --------------------------------------------------------
-              # Buscar el campo de URL.
-              # --------------------------------------------------------
-
-              inputs = page.locator(
-                  "input"
-              )
+              inputs = page.locator("input")
 
               if inputs.count() == 0:
-                  print(
-                      "❌ No se encontró ningún input."
-                  )
+                  print("❌ No se encontró input.")
                   return False
 
-              target_input = None
+              target = inputs.first
 
               for i in range(inputs.count()):
-
                   try:
                       inp = inputs.nth(i)
 
@@ -353,9 +233,7 @@ jobs:
                       ).lower()
 
                       placeholder = (
-                          inp.get_attribute(
-                              "placeholder"
-                          )
+                          inp.get_attribute("placeholder")
                           or ""
                       ).lower()
 
@@ -365,210 +243,159 @@ jobs:
                       ).lower()
 
                       if (
-                          input_type in (
-                              "",
-                              "text",
-                              "url"
-                          )
+                          input_type in ("", "text", "url")
                           and (
-                              "url" in placeholder
-                              or "instagram" in placeholder
-                              or "url" in name
+                              "instagram" in placeholder
                               or "instagram" in name
-                              or i == 0
+                              or "url" in placeholder
+                              or "url" in name
                           )
                       ):
-                          target_input = inp
+                          target = inp
                           break
 
                   except Exception:
                       pass
 
-              if target_input is None:
-                  target_input = inputs.first
-
-              target_input.fill(profile_url)
+              target.fill(profile_url)
 
               time.sleep(1)
 
-              # --------------------------------------------------------
-              # Buscar botón Descargar asociado al formulario.
-              # --------------------------------------------------------
-
-              form = None
-
-              try:
-                  form = target_input.locator(
-                      "xpath=ancestor::form[1]"
-                  )
-              except Exception:
-                  form = None
-
               clicked = False
 
-              if form is not None:
-
-                  try:
-                      form_buttons = form.locator(
-                          "button, input[type=submit]"
-                      )
-
-                      for i in range(
-                          form_buttons.count()
-                      ):
-                          button = form_buttons.nth(i)
-
-                          try:
-                              text = (
-                                  button.inner_text()
-                                  or ""
-                              ).strip().lower()
-                          except Exception:
-                              text = ""
-
-                          value = (
-                              button.get_attribute(
-                                  "value"
-                              )
-                              or ""
-                          ).strip().lower()
-
-                          if (
-                              "descargar" in text
-                              or "descargar" in value
-                          ):
-                              print(
-                                  "Pulsando Descargar "
-                                  "del formulario..."
-                              )
-
-                              button.click()
-
-                              clicked = True
-                              break
-
-                  except Exception:
-                      pass
-
-              # --------------------------------------------------------
-              # Fallback.
-              # --------------------------------------------------------
-
-              if not clicked:
-
-                  print(
-                      "Buscando botón Descargar "
-                      "como fallback..."
+              try:
+                  form = target.locator(
+                      "xpath=ancestor::form[1]"
                   )
 
+                  buttons = form.locator(
+                      "button, input[type=submit]"
+                  )
+
+                  for i in range(buttons.count()):
+                      button = buttons.nth(i)
+
+                      text = ""
+
+                      try:
+                          text = (
+                              button.inner_text()
+                              or ""
+                          ).strip().lower()
+                      except Exception:
+                          pass
+
+                      value = (
+                          button.get_attribute("value")
+                          or ""
+                      ).strip().lower()
+
+                      if (
+                          "descargar" in text
+                          or "descargar" in value
+                      ):
+                          print(
+                              "Pulsando Descargar..."
+                          )
+
+                          button.click()
+
+                          clicked = True
+                          break
+
+              except Exception as e:
+                  print(
+                      f"⚠️ Error buscando botón "
+                      f"del formulario: {e}"
+                  )
+
+              if not clicked:
                   buttons = page.get_by_text(
                       "Descargar",
                       exact=True
                   )
 
                   if buttons.count() > 0:
+                      print(
+                          "Pulsando Descargar "
+                          "como fallback..."
+                      )
 
                       buttons.first.click()
-
                       clicked = True
 
               if not clicked:
-
                   print(
                       "❌ No se pudo pulsar Descargar."
                   )
 
                   return False
 
-              # --------------------------------------------------------
-              # Esperar resultados.
-              #
-              # NO esperamos un selector específico porque SSSInstagram
-              # puede cambiar la estructura.
-              # --------------------------------------------------------
-
               print(
-                  "Esperando resultados de SSSInstagram..."
+                  "Esperando resultados..."
               )
 
               for intento in range(1, 11):
-
                   time.sleep(2)
 
                   videos = page.locator(
                       "video[src]"
                   ).count()
 
-                  story_images = page.locator(
+                  images = page.locator(
                       "img.media-content__image"
                   ).count()
 
                   print(
                       f"Espera {intento}/10 | "
                       f"videos={videos} | "
-                      f"imagenes={story_images}"
+                      f"imagenes={images}"
                   )
 
-                  if (
-                      videos > 0
-                      or story_images > 0
-                  ):
-                      print(
-                          "✅ Se detectaron "
-                          "resultados multimedia."
-                      )
-
+                  if videos > 0 or images > 0:
                       return True
 
               print(
-                  "⚠️ No se detectaron multimedia "
+                  "⚠️ No aparecieron resultados "
                   "con los selectores principales."
               )
-
-              # No abandonamos inmediatamente.
-              # El colector hará una inspección adicional.
 
               return True
 
 
-          # ============================================================
-          # COLECTOR DE STORIES
-          # ============================================================
-
           def collect_media(page):
+              """
+              Obtiene:
 
-              print(
-                  "Buscando multimedia de Stories..."
-              )
+              1. Videos reales mediante video[src].
+              2. Fotos mediante img.media-content__image.
 
-              result = page.evaluate(
+              Nunca utiliza poster como archivo independiente.
+              Nunca utiliza img.avatar__image.
+              """
+
+              media = page.evaluate(
                   """
                   () => {
 
-                      const output = [];
+                      const result = [];
                       const seen = new Set();
 
                       // =================================================
-                      // 1. VIDEOS REALES
-                      //
-                      // SSSInstagram está cargando el video real
-                      // directamente mediante:
-                      //
-                      // <video src="...mp4">
-                      //
-                      // No utilizamos poster.
+                      // VIDEOS
                       // =================================================
 
-                      const videos = Array.from(
-                          document.querySelectorAll(
-                              'video[src]'
-                          )
-                      );
+                      const videos =
+                          Array.from(
+                              document.querySelectorAll(
+                                  'video[src]'
+                              )
+                          );
 
                       for (const video of videos) {
 
                           const src =
-                              video.getAttribute('src') || '';
+                              video.getAttribute("src") || "";
 
                           if (!src) {
                               continue;
@@ -577,133 +404,77 @@ jobs:
                           const lower =
                               src.toLowerCase();
 
-                          // Debe ser una URL de video real.
                           if (
-                              !lower.includes('.mp4')
+                              src.startsWith("blob:")
+                              ||
+                              src.startsWith("data:")
+                          ) {
+                              continue;
+                          }
+
+                          if (
+                              !lower.includes(".mp4")
                               &&
                               !lower.includes(
-                                  'cdninstagram.com'
+                                  "cdninstagram.com"
                               )
                           ) {
                               continue;
                           }
 
-                          if (
-                              src.startsWith('blob:')
-                              ||
-                              src.startsWith('data:')
-                          ) {
+                          if (seen.has(src)) {
                               continue;
                           }
 
-                          // Buscar el elemento contenedor
-                          // correspondiente a esta Story.
-                          let container = video;
+                          seen.add(src);
 
-                          for (
-                              let i = 0;
-                              i < 10 && container;
-                              i++
-                          ) {
-
-                              const text =
-                                  (
-                                      container.innerText
-                                      || ''
-                                  ).trim();
-
-                              const aria =
+                          result.push({
+                              type: "video",
+                              url: src,
+                              label:
                                   video.getAttribute(
-                                      'aria-label'
-                                  )
-                                  || '';
-
-                              // Evitamos elementos genéricos
-                              // del sitio.
-                              if (
-                                  text.length > 0
-                                  ||
-                                  aria.length > 0
-                              ) {
-                                  break;
-                              }
-
-                              container =
-                                  container.parentElement;
-                          }
-
-                          if (!seen.has(src)) {
-
-                              seen.add(src);
-
-                              output.push({
-                                  type: 'video',
-                                  url: src,
-                                  preview: (
-                                      video.getAttribute(
-                                          'poster'
-                                      ) || ''
-                                  ),
-                                  label: (
-                                      video.getAttribute(
-                                          'aria-label'
-                                      ) || ''
-                                  )
-                              });
-                          }
+                                      "aria-label"
+                                  ) || ""
+                          });
                       }
 
 
                       // =================================================
-                      // 2. IMÁGENES DE STORIES
-                      //
-                      // MUY IMPORTANTE:
-                      //
-                      // Usamos exclusivamente:
-                      //
-                      // img.media-content__image
-                      //
-                      // y NO todos los img de la página.
-                      //
-                      // Así no entra:
-                      // img.avatar__image
-                      // logos
-                      // iconos
-                      // etc.
+                      // FOTOS
                       // =================================================
 
-                      const images = Array.from(
-                          document.querySelectorAll(
-                              'img.media-content__image'
-                          )
-                      );
+                      const images =
+                          Array.from(
+                              document.querySelectorAll(
+                                  "img.media-content__image"
+                              )
+                          );
 
                       for (const img of images) {
 
                           const src =
-                              img.getAttribute('src') || '';
+                              img.getAttribute("src") || "";
 
                           if (!src) {
                               continue;
                           }
 
                           if (
-                              src.startsWith('data:')
+                              src.startsWith("blob:")
                               ||
-                              src.startsWith('blob:')
+                              src.startsWith("data:")
                           ) {
                               continue;
                           }
 
-                          // Si esta imagen está dentro de un
-                          // contenedor que contiene un video,
-                          // probablemente es el poster/preview
-                          // de ese video.
-                          //
+                          // ---------------------------------------------
+                          // Si la imagen pertenece a una tarjeta que
+                          // contiene un video, es solamente el preview.
                           // NO la agregamos.
-                          let hasVideo = false;
+                          // ---------------------------------------------
 
                           let node = img;
+                          let belongsToVideo = false;
 
                           for (
                               let i = 0;
@@ -714,10 +485,10 @@ jobs:
                               if (
                                   node.querySelector &&
                                   node.querySelector(
-                                      'video[src]'
+                                      "video[src]"
                                   )
                               ) {
-                                  hasVideo = true;
+                                  belongsToVideo = true;
                                   break;
                               }
 
@@ -725,14 +496,17 @@ jobs:
                                   node.parentElement;
                           }
 
-                          if (hasVideo) {
+                          if (belongsToVideo) {
                               continue;
                           }
 
-                          // Buscar enlace de descarga de esta
-                          // Story, si existe.
+                          // ---------------------------------------------
+                          // Buscar botón de descarga dentro de la
+                          // tarjeta de esta Story.
+                          // ---------------------------------------------
+
                           let container = img;
-                          let downloadUrl = '';
+                          let downloadUrl = "";
 
                           for (
                               let i = 0;
@@ -742,28 +516,24 @@ jobs:
 
                               const download =
                                   container.querySelector(
-                                      'a.download-btn[href]'
+                                      "a.download-btn[href]"
                                   );
 
                               if (download) {
 
-                                  downloadUrl =
+                                  const href =
                                       download.getAttribute(
-                                          'href'
-                                      )
-                                      || '';
+                                          "href"
+                                      ) || "";
 
                                   if (
-                                      downloadUrl
-                                      &&
-                                      downloadUrl.includes(
-                                          'media.sssinstagram.com/get'
+                                      href.includes(
+                                          "media.sssinstagram.com/get"
                                       )
                                   ) {
+                                      downloadUrl = href;
                                       break;
                                   }
-
-                                  downloadUrl = '';
                               }
 
                               container =
@@ -773,50 +543,46 @@ jobs:
                           const finalUrl =
                               downloadUrl || src;
 
-                          if (
-                              !finalUrl
-                          ) {
+                          if (!finalUrl) {
                               continue;
                           }
 
-                          if (
-                              !seen.has(finalUrl)
-                          ) {
-
-                              seen.add(finalUrl);
-
-                              output.push({
-                                  type: 'photo',
-                                  url: finalUrl,
-                                  preview: src,
-                                  label: (
-                                      img.getAttribute(
-                                          'alt'
-                                      ) || ''
-                                  )
-                              });
+                          if (seen.has(finalUrl)) {
+                              continue;
                           }
+
+                          seen.add(finalUrl);
+
+                          result.push({
+                              type: "photo",
+                              url: finalUrl,
+                              label:
+                                  img.getAttribute(
+                                      "alt"
+                                  ) || ""
+                          });
                       }
 
-                      return output;
+                      return result;
                   }
                   """
               )
 
-              print(
-                  f"Multimedia encontrada inicialmente: "
-                  f"{len(result)}"
-              )
-
               videos = [
-                  x for x in result
-                  if x.get("type") == "video"
+                  item
+                  for item in media
+                  if item["type"] == "video"
               ]
 
               photos = [
-                  x for x in result
-                  if x.get("type") == "photo"
+                  item
+                  for item in media
+                  if item["type"] == "photo"
               ]
+
+              print(
+                  f"Multimedia encontrada: {len(media)}"
+              )
 
               print(
                   f"  🎥 Videos: {len(videos)}"
@@ -826,27 +592,19 @@ jobs:
                   f"  📸 Fotos: {len(photos)}"
               )
 
-              return result
+              return media
 
 
-          # ============================================================
-          # SCROLL INTERNO DE STORIES
-          # ============================================================
-
-          def scroll_internal_containers(
-              page,
-              collected
-          ):
-
+          def scroll_stories(page, media):
               print(
-                  "Buscando contenedores con scroll interno..."
+                  "Buscando scroll interno..."
               )
 
-              stable_rounds = 0
+              stable = 0
 
               for ronda in range(1, 21):
 
-                  before = len(collected)
+                  before = len(media)
 
                   moved = page.evaluate(
                       """
@@ -854,7 +612,7 @@ jobs:
 
                           const elements =
                               Array.from(
-                                  document.querySelectorAll('*')
+                                  document.querySelectorAll("*")
                               );
 
                           const scrollables =
@@ -868,13 +626,13 @@ jobs:
                                       el.clientHeight + 100
                                       &&
                                       (
-                                          style.overflowY === 'auto'
+                                          style.overflowY === "auto"
                                           ||
-                                          style.overflowY === 'scroll'
+                                          style.overflowY === "scroll"
                                           ||
-                                          style.overflow === 'auto'
+                                          style.overflow === "auto"
                                           ||
-                                          style.overflow === 'scroll'
+                                          style.overflow === "scroll"
                                       )
                                   );
                               });
@@ -892,8 +650,8 @@ jobs:
                                   Math.max(
                                       500,
                                       Math.floor(
-                                          el.clientHeight
-                                          * 0.85
+                                          el.clientHeight *
+                                          0.85
                                       )
                                   );
 
@@ -918,90 +676,71 @@ jobs:
 
                   time.sleep(1.5)
 
-                  new_items =
-                      collect_media(page)
+                  new_items = collect_media(page)
 
                   for item in new_items:
 
                       key = (
-                          item.get("type"),
-                          item.get("url")
+                          item["type"],
+                          item["url"]
                       )
 
-                      already = any(
+                      exists = any(
                           (
-                              x.get("type"),
-                              x.get("url")
+                              old["type"],
+                              old["url"]
                           ) == key
-                          for x in collected
+                          for old in media
                       )
 
-                      if not already:
-                          collected.append(item)
+                      if not exists:
+                          media.append(item)
 
-                  added = (
-                      len(collected) - before
-                  )
+                  added = len(media) - before
 
                   print(
                       f"Scroll {ronda}/20 | "
                       f"movidos={moved} | "
                       f"nuevos={added} | "
-                      f"total={len(collected)}"
+                      f"total={len(media)}"
                   )
 
                   if added == 0 and moved == 0:
-                      stable_rounds += 1
+                      stable += 1
                   else:
-                      stable_rounds = 0
+                      stable = 0
 
-                  if stable_rounds >= 2:
-                      print(
-                          "⏹️ No aparecen más "
-                          "Stories nuevas."
-                      )
+                  if stable >= 2:
                       break
 
-              return collected
+              return media
 
 
-          # ============================================================
-          # DESCARGAR MEDIA
-          # ============================================================
-
-          def download_media(
-              url,
-              account,
-              index
-          ):
-
+          def download_media(url, account, index):
               DOWNLOAD_DIR.mkdir(
                   parents=True,
                   exist_ok=True
               )
 
               print(
-                  f"Descargando media {index} "
-                  f"de @{account}"
+                  f"Descargando {index}:"
               )
 
               print(
-                  f"URL: {url[:250]}"
+                  url[:250]
               )
 
               try:
-
                   response = requests.get(
                       url,
                       timeout=120,
                       headers={
-                          "User-Agent": (
+                          "User-Agent":
                               "Mozilla/5.0 "
                               "(Windows NT 10.0; Win64; x64) "
                               "AppleWebKit/537.36 "
                               "(KHTML, like Gecko) "
                               "Chrome/131.0 Safari/537.36"
-                          )
                       }
                   )
 
@@ -1022,7 +761,7 @@ jobs:
                       f"Content-Type: {content_type}"
                   )
 
-                  extension = get_extension(
+                  extension = extension_from_response(
                       content_type,
                       url
                   )
@@ -1039,50 +778,28 @@ jobs:
                       filename
                   )
 
-                  with open(
-                      path,
-                      "wb"
-                  ) as f:
+                  with open(path, "wb") as f:
                       f.write(response.content)
 
-                  size = path.stat().st_size
-
                   print(
-                      f"Archivo descargado: "
-                      f"{path}"
+                      f"Archivo: {path}"
                   )
 
                   print(
-                      f"Tamaño: {size} bytes"
+                      f"Tamaño: {path.stat().st_size} bytes"
                   )
-
-                  if size < 1000:
-                      print(
-                          "⚠️ Archivo sospechosamente "
-                          "pequeño."
-                      )
 
                   return path, content_type
 
               except Exception as e:
-
                   print(
-                      f"❌ Error descargando media: "
-                      f"{e}"
+                      f"❌ Error descargando: {e}"
                   )
 
                   return None, None
 
 
-          # ============================================================
-          # PROCESAR UNA CUENTA
-          # ============================================================
-
-          def process_account(
-              page,
-              account,
-              state
-          ):
+          def process_account(page, account, state):
 
               print()
               print("=" * 50)
@@ -1116,7 +833,7 @@ jobs:
               )
 
               print(
-                  f"Cuenta inicializada: "
+                  f"Inicializada: "
                   f"{initialized}"
               )
 
@@ -1128,81 +845,56 @@ jobs:
 
               time.sleep(2)
 
-              # --------------------------------------------------------
-              # Primera recolección
-              # --------------------------------------------------------
-
               media = collect_media(page)
 
-              # --------------------------------------------------------
-              # Scroll interno para cargar Stories adicionales
-              # --------------------------------------------------------
-
-              media = scroll_internal_containers(
+              media = scroll_stories(
                   page,
                   media
               )
 
               # --------------------------------------------------------
-              # Eliminar duplicados por URL
+              # Eliminar duplicados finales
               # --------------------------------------------------------
 
               unique = []
-
               seen = set()
 
               for item in media:
 
                   key = (
-                      item.get("type"),
-                      item.get("url")
+                      item["type"],
+                      item["url"]
                   )
 
                   if key in seen:
                       continue
 
                   seen.add(key)
-
                   unique.append(item)
 
               media = unique
 
-              videos = [
-                  x for x in media
-                  if x.get("type") == "video"
-              ]
-
-              photos = [
-                  x for x in media
-                  if x.get("type") == "photo"
-              ]
-
               print()
               print(
-                  f"Stories multimedia encontradas: "
-                  f"{len(media)}"
+                  f"TOTAL FINAL: {len(media)}"
               )
 
               print(
-                  f"  🎥 Videos: {len(videos)}"
+                  f"Videos: "
+                  f"{sum(1 for x in media if x['type'] == 'video')}"
               )
 
               print(
-                  f"  📸 Fotos: {len(photos)}"
+                  f"Fotos: "
+                  f"{sum(1 for x in media if x['type'] == 'photo')}"
               )
 
               if not media:
-
                   print(
-                      "⚠️ No se encontró multimedia "
-                      "para esta cuenta."
+                      "⚠️ No se encontraron Stories."
                   )
 
                   return 0
-
-              # --------------------------------------------------------
-              # Descargar y calcular hashes
-              # --------------------------------------------------------
 
               pending = []
 
@@ -1211,20 +903,9 @@ jobs:
                   start=1
               ):
 
-                  media_type = item.get(
-                      "type"
-                  )
-
-                  url = item.get(
-                      "url"
-                  )
-
-                  if not url:
-                      continue
-
                   path, content_type = (
                       download_media(
-                          url,
+                          item["url"],
                           account,
                           index
                       )
@@ -1233,26 +914,22 @@ jobs:
                   if path is None:
                       continue
 
-                  file_hash = file_sha256(
-                      path
-                  )
+                  file_hash = sha256_file(path)
 
                   print(
                       f"SHA-256: {file_hash}"
                   )
 
                   # ----------------------------------------------------
-                  # Cuenta nueva:
-                  #
-                  # Las Stories existentes se convierten en baseline.
+                  # Cuenta nueva: baseline
                   # ----------------------------------------------------
 
                   if not initialized:
 
                       print(
-                          "🆕 Cuenta nueva: "
-                          "Story agregada al estado "
-                          "sin enviarla."
+                          "🆕 Cuenta nueva. "
+                          "Se agrega al estado "
+                          "sin enviar."
                       )
 
                       known_hashes.add(
@@ -1275,7 +952,7 @@ jobs:
                   ):
 
                       print(
-                          "⏭️ Esta Story ya fue enviada."
+                          "⏭️ Story ya enviada."
                       )
 
                       path.unlink(
@@ -1284,32 +961,38 @@ jobs:
 
                       continue
 
-                  # ----------------------------------------------------
-                  # FORCE_RESEND
-                  # ----------------------------------------------------
-
                   if (
                       file_hash in known_hashes
                       and FORCE_RESEND
                   ):
 
                       print(
-                          "🔄 MODO PRUEBA: "
-                          "esta Story ya existe "
-                          "en el estado, "
-                          "pero será reenviada."
+                          "🔄 FORCE_RESEND: "
+                          "se reenviará."
                       )
+
+                  # ----------------------------------------------------
+                  # Determinar tipo por archivo descargado
+                  # ----------------------------------------------------
+
+                  actual_type = item["type"]
+
+                  if (
+                      content_type.lower()
+                      .startswith("video/")
+                  ):
+                      actual_type = "video"
 
                   pending.append(
                       (
                           path,
-                          media_type,
+                          actual_type,
                           file_hash
                       )
                   )
 
               # --------------------------------------------------------
-              # Actualizar baseline de cuenta nueva
+              # Guardar baseline
               # --------------------------------------------------------
 
               if not initialized:
@@ -1322,15 +1005,14 @@ jobs:
                   }
 
                   print(
-                      f"Baseline creada para "
-                      f"@{account}: "
+                      f"Baseline creada: "
                       f"{len(known_hashes)} hashes."
                   )
 
                   return 0
 
               # --------------------------------------------------------
-              # Enviar pendientes
+              # Enviar
               # --------------------------------------------------------
 
               print()
@@ -1354,14 +1036,22 @@ jobs:
                   )
 
                   print(
-                      f"Tipo: {media_type}"
+                      f"Tipo detectado: "
+                      f"{media_type}"
                   )
 
                   print(
-                      f"Archivo: {path}"
+                      f"Archivo: "
+                      f"{path}"
                   )
 
-                  success = send_media(
+                  if media_type == "video":
+                      method = "sendVideo"
+                  else:
+                      method = "sendPhoto"
+
+                  success = telegram(
+                      method,
                       path,
                       account,
                       media_type
@@ -1373,13 +1063,6 @@ jobs:
                           "✅ Telegram confirmó "
                           "el envío."
                       )
-
-                      # ------------------------------------------------
-                      # MUY IMPORTANTE:
-                      #
-                      # Solo agregamos el hash al estado
-                      # DESPUÉS de que Telegram confirme.
-                      # ------------------------------------------------
 
                       known_hashes.add(
                           file_hash
@@ -1398,10 +1081,6 @@ jobs:
                       missing_ok=True
                   )
 
-              # --------------------------------------------------------
-              # Guardar máximo 100 hashes
-              # --------------------------------------------------------
-
               state[account] = {
                   "initialized": True,
                   "hashes": list(
@@ -1409,23 +1088,17 @@ jobs:
                   )[-100:]
               }
 
-              print()
               print(
                   f"Estado de @{account}: "
                   f"{len(known_hashes)} hashes."
               )
 
               print(
-                  f"Enviadas correctamente: "
-                  f"{sent}"
+                  f"Enviadas: {sent}"
               )
 
               return sent
 
-
-          # ============================================================
-          # MAIN
-          # ============================================================
 
           def main():
 
@@ -1489,27 +1162,20 @@ jobs:
 
                       try:
 
-                          sent = process_account(
+                          total_sent += process_account(
                               page,
                               account,
                               state
                           )
 
-                          total_sent += sent
-
                       except Exception as e:
 
                           print()
                           print(
-                              f"❌ Error procesando "
-                              f"@{account}:"
+                              f"❌ ERROR en @{account}:"
                           )
 
                           print(e)
-
-                      # ------------------------------------------------
-                      # Limpiar página antes de la siguiente cuenta.
-                      # ------------------------------------------------
 
                       try:
                           page.goto(
@@ -1519,10 +1185,6 @@ jobs:
                           pass
 
                   browser.close()
-
-              # --------------------------------------------------------
-              # Guardar estado
-              # --------------------------------------------------------
 
               save_state(state)
 
@@ -1542,7 +1204,7 @@ jobs:
               )
 
               print(
-                  f"Estado guardado en: "
+                  f"Estado guardado: "
                   f"{STATE_FILE}"
               )
 
@@ -1551,19 +1213,12 @@ jobs:
 
           if __name__ == "__main__":
               main()
-
           PY
 
-      # ============================================================
-      # 4. COMPROBAR SINTAXIS PYTHON
-      # ============================================================
       - name: Comprobar sintaxis
         run: |
           python -m py_compile monitor_instagram.py
 
-      # ============================================================
-      # 5. EJECUTAR MONITOR
-      # ============================================================
       - name: Ejecutar monitor
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -1571,9 +1226,6 @@ jobs:
         run: |
           python -u monitor_instagram.py
 
-      # ============================================================
-      # 6. GUARDAR ESTADO EN GITHUB
-      # ============================================================
       - name: Guardar estado
         run: |
           git config user.name "github-actions[bot]"
@@ -1588,10 +1240,7 @@ jobs:
             git push
           fi
 
-      # ============================================================
-      # 7. LIMPIAR ARCHIVOS TEMPORALES
-      # ============================================================
-      - name: Limpiar descargas temporales
+      - name: Limpiar archivos temporales
         if: always()
         run: |
           rm -rf downloads

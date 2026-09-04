@@ -1,432 +1,1202 @@
-name: Instagram Stories - DIAGNOSTICO API SNAPGRAM
+name: Instagram Stories Monitor
 
 on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  diagnostico:
+  monitor:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Instalar Python y Playwright
+      - name: Instalar Playwright
         run: |
-          python -m pip install --upgrade pip
-          pip install playwright
-          playwright install chromium
-          playwright install-deps chromium
+          python3 -m pip install playwright
+          python3 -m playwright install --with-deps chromium
 
-      - name: Ejecutar diagnóstico
+      - name: Monitorizar Stories
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        shell: bash
         run: |
-          python <<'PY'
+          python3 <<'PY'
           import asyncio
+          import hashlib
           import json
-          from urllib.parse import urlparse
+          import os
+          import re
+          import subprocess
+          import tempfile
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
 
           from playwright.async_api import async_playwright
 
 
-          SNAPGRAM_URL = "https://www.snapgram.io/instagram-story-downloader/"
+          # ==============================================================
+          # CONFIGURACIÓN
+          # ==============================================================
 
-          ACCOUNTS = [
-              "zero.design.oficial",
-              "carenballen",
-              "laderechadiario",
-          ]
+          ACCOUNTS_FILE = "data/instagram-accounts.json"
+          STATE_FILE = "data/instagram-state.json"
+
+          SNAPGRAM_URL = (
+              "https://www.snapgram.io/"
+              "instagram-story-downloader/"
+          )
+
+          TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+          TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+
+          # SOLO PARA ESTA PRIMERA PRUEBA REAL.
+          # Después de comprobar Telegram, cambiar a False.
+          FORCE_RESEND = True
+
+          MAX_HASHES_PER_ACCOUNT = 100
+
+          USER_AGENT = (
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+              "AppleWebKit/537.36 (KHTML, like Gecko) "
+              "Chrome/139.0.0.0 Safari/537.36"
+          )
 
 
-          KEYWORDS = [
-              "api",
-              "instagram",
-              "story",
-              "stories",
-              "media",
-              "download",
-              "graphql",
-              "ajax",
-              "json",
-              "result",
-              "fetch",
-          ]
+          # ==============================================================
+          # UTILIDADES
+          # ==============================================================
+
+          def load_json(path, default):
+
+              if not os.path.exists(path):
+                  return default
+
+              try:
+                  with open(path, "r", encoding="utf-8") as f:
+                      return json.load(f)
+
+              except Exception as e:
+                  print(f"⚠️ Error leyendo {path}: {e}")
+                  return default
 
 
-          def interesting_url(url):
-              u = url.lower()
+          def save_json(path, data):
 
-              # Ignorar recursos estáticos normales de Snapgram
-              ignored = [
-                  "/_next/static/",
-                  ".css",
-                  ".js",
-                  ".woff",
-                  ".woff2",
-                  ".png",
-                  ".jpg",
-                  ".jpeg",
-                  ".svg",
-                  ".ico",
-              ]
+              os.makedirs(
+                  os.path.dirname(path),
+                  exist_ok=True
+              )
 
-              if any(x in u for x in ignored):
+              temp_path = path + ".tmp"
+
+              with open(
+                  temp_path,
+                  "w",
+                  encoding="utf-8"
+              ) as f:
+
+                  json.dump(
+                      data,
+                      f,
+                      ensure_ascii=False,
+                      indent=2
+                  )
+
+              os.replace(
+                  temp_path,
+                  path
+              )
+
+
+          def sha256_file(path):
+
+              h = hashlib.sha256()
+
+              with open(path, "rb") as f:
+
+                  while True:
+
+                      chunk = f.read(1024 * 1024)
+
+                      if not chunk:
+                          break
+
+                      h.update(chunk)
+
+              return h.hexdigest()
+
+
+          def media_type_from_url(url):
+
+              if not url:
+                  return None
+
+              path = urllib.parse.urlparse(url).path.lower()
+
+              if ".mp4" in path:
+                  return "video"
+
+              if any(
+                  ext in path
+                  for ext in [
+                      ".jpg",
+                      ".jpeg",
+                      ".png",
+                      ".webp"
+                  ]
+              ):
+                  return "photo"
+
+              return None
+
+
+          def validate_file(path, media_type):
+
+              if not os.path.exists(path):
                   return False
 
-              return any(k in u for k in KEYWORDS)
+              size = os.path.getsize(path)
+
+              if size < 100:
+                  return False
+
+              with open(path, "rb") as f:
+                  header = f.read(32)
+
+              if media_type == "video":
+
+                  # MP4 normalmente contiene "ftyp" dentro
+                  # de los primeros bytes.
+                  if b"ftyp" not in header:
+                      return False
+
+                  return True
+
+              if media_type == "photo":
+
+                  # JPEG
+                  if header.startswith(b"\xff\xd8\xff"):
+                      return True
+
+                  # PNG
+                  if header.startswith(
+                      b"\x89PNG\r\n\x1a\n"
+                  ):
+                      return True
+
+                  # WEBP
+                  if (
+                      header.startswith(b"RIFF")
+                      and
+                      b"WEBP" in header[:16]
+                  ):
+                      return True
+
+                  return False
+
+              return False
 
 
-          async def safe_text(response):
-              try:
-                  return await response.text()
-              except Exception as e:
-                  return f"[NO SE PUDO LEER BODY: {e}]"
+          # ==============================================================
+          # TELEGRAM
+          # ==============================================================
 
+          def telegram_request(
+              method,
+              filename,
+              media_type,
+              caption
+          ):
 
-          async def diagnosticar(browser, username):
+              if media_type == "video":
+                  endpoint = (
+                      f"https://api.telegram.org/"
+                      f"bot{TELEGRAM_BOT_TOKEN}/sendVideo"
+                  )
+                  field_name = "video"
 
-              print()
-              print("=" * 90)
-              print(f"CUENTA: @{username}")
-              print("=" * 90)
+              else:
+                  endpoint = (
+                      f"https://api.telegram.org/"
+                      f"bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+                  )
+                  field_name = "photo"
 
-              page = await browser.new_page()
-
-              interesting_requests = []
-              interesting_responses = []
-
-              async def on_request(request):
-
-                  url = request.url
-
-                  if interesting_url(url):
-
-                      print()
-                      print(">>> REQUEST INTERESANTE <<<")
-                      print("METHOD:", request.method)
-                      print("URL:", url)
-
-                      try:
-                          headers = await request.all_headers()
-
-                          selected = {}
-
-                          for key, value in headers.items():
-                              if key.lower() in [
-                                  "content-type",
-                                  "accept",
-                                  "origin",
-                                  "referer",
-                                  "user-agent",
-                              ]:
-                                  selected[key] = value
-
-                          if selected:
-                              print("HEADERS:")
-                              print(json.dumps(
-                                  selected,
-                                  indent=2,
-                                  ensure_ascii=False
-                              ))
-
-                      except Exception:
-                          pass
-
-                      try:
-                          post_data = request.post_data
-
-                          if post_data:
-                              print("REQUEST BODY:")
-                              print(post_data[:10000])
-
-                      except Exception:
-                          pass
-
-                      interesting_requests.append(request)
-
-              async def on_response(response):
-
-                  url = response.url
-
-                  if interesting_url(url):
-
-                      print()
-                      print("<<< RESPONSE INTERESANTE <<<")
-                      print("HTTP:", response.status)
-                      print("METHOD:", response.request.method)
-                      print("URL:", url)
-
-                      try:
-                          headers = await response.all_headers()
-
-                          content_type = headers.get(
-                              "content-type",
-                              ""
-                          )
-
-                          print("Content-Type:", content_type)
-
-                          interesting_responses.append(response)
-
-                          # Solo intentamos leer cuerpos que puedan contener
-                          # información útil.
-                          if (
-                              "json" in content_type.lower()
-                              or "text" in content_type.lower()
-                          ):
-
-                              body = await safe_text(response)
-
-                              print("RESPONSE BODY:")
-                              print(body[:20000])
-
-                      except Exception as e:
-                          print("Error procesando respuesta:", e)
-
-
-              page.on("request", on_request)
-              page.on("response", on_response)
-
-
-              print()
-              print("Abriendo:")
-              print(SNAPGRAM_URL)
-
-              await page.goto(
-                  SNAPGRAM_URL,
-                  wait_until="domcontentloaded",
-                  timeout=60000
+              boundary = (
+                  "----PythonTelegramBoundary"
+                  + hashlib.md5(
+                      os.urandom(16)
+                  ).hexdigest()
               )
 
-              await page.wait_for_timeout(5000)
+              parts = []
 
-              print()
-              print("Página cargada.")
+              def add_text(name, value):
 
-              # Buscar campo de entrada
-              inputs = page.locator("input")
-
-              count = await inputs.count()
-
-              print("Inputs encontrados:", count)
-
-              input_found = None
-
-              for i in range(count):
-
-                  try:
-                      el = inputs.nth(i)
-
-                      if await el.is_visible():
-
-                          placeholder = await el.get_attribute(
-                              "placeholder"
-                          )
-
-                          name = await el.get_attribute("name")
-                          value = await el.get_attribute("value")
-
-                          print(
-                              f"INPUT #{i}: "
-                              f"placeholder={placeholder!r} "
-                              f"name={name!r} "
-                              f"value={value!r}"
-                          )
-
-                          input_found = el
-                          break
-
-                  except Exception:
-                      pass
-
-
-              if input_found is None:
-
-                  print("❌ No se encontró un input visible.")
-
-                  await page.screenshot(
-                      path=f"diagnostico_{username}_sin_input.png",
-                      full_page=True
+                  parts.append(
+                      (
+                          f"--{boundary}\r\n"
+                          f'Content-Disposition: form-data; '
+                          f'name="{name}"\r\n\r\n'
+                          f"{value}\r\n"
+                      ).encode()
                   )
 
-                  await page.close()
-                  return
+              def add_file(name, path):
 
+                  filename_only = os.path.basename(path)
 
-              story_url = (
-                  f"https://www.instagram.com/stories/{username}/"
+                  header = (
+                      f"--{boundary}\r\n"
+                      f'Content-Disposition: form-data; '
+                      f'name="{name}"; '
+                      f'filename="{filename_only}"\r\n'
+                      f"Content-Type: "
+                  )
+
+                  if media_type == "video":
+                      header += "video/mp4"
+                  else:
+                      header += "image/jpeg"
+
+                  header += "\r\n\r\n"
+
+                  parts.append(header.encode())
+
+                  with open(path, "rb") as f:
+                      parts.append(f.read())
+
+                  parts.append(b"\r\n")
+
+              add_text(
+                  "chat_id",
+                  TELEGRAM_CHAT_ID
               )
 
-              print()
-              print("URL QUE SE ENVIARÁ A SNAPGRAM:")
-              print(story_url)
+              if caption:
+                  add_text(
+                      "caption",
+                      caption
+                  )
 
-              await input_found.fill(story_url)
+              if media_type == "video":
+                  add_text(
+                      "supports_streaming",
+                      "true"
+                  )
 
-              await page.wait_for_timeout(1000)
-
-
-              # Buscar botón Download
-              buttons = page.get_by_role(
-                  "button",
-                  name="Download"
+              add_file(
+                  field_name,
+                  filename
               )
 
-              button_count = await buttons.count()
+              parts.append(
+                  f"--{boundary}--\r\n".encode()
+              )
 
-              print()
-              print("Botones Download encontrados:", button_count)
+              body = b"".join(parts)
 
-              button_found = None
+              request = urllib.request.Request(
+                  endpoint,
+                  data=body,
+                  method="POST"
+              )
 
-              for i in range(button_count):
+              request.add_header(
+                  "Content-Type",
+                  f"multipart/form-data; boundary={boundary}"
+              )
 
-                  try:
+              request.add_header(
+                  "Content-Length",
+                  str(len(body))
+              )
 
-                      el = buttons.nth(i)
+              try:
 
-                      if await el.is_visible():
+                  with urllib.request.urlopen(
+                      request,
+                      timeout=120
+                  ) as response:
 
-                          button_found = el
-                          break
+                      response_body = response.read().decode(
+                          "utf-8",
+                          errors="replace"
+                      )
 
-                  except Exception:
-                      pass
+                      print(
+                          f"Telegram HTTP: {response.status}"
+                      )
 
+                      data = json.loads(
+                          response_body
+                      )
 
-              # Si no encuentra por role, buscar botones/enlaces por texto.
-              if button_found is None:
+                      return (
+                          response.status,
+                          data
+                      )
+
+              except urllib.error.HTTPError as e:
+
+                  body = e.read().decode(
+                      "utf-8",
+                      errors="replace"
+                  )
 
                   print(
-                      "No apareció botón por role; "
-                      "buscando elementos con texto Download..."
+                      f"❌ Telegram HTTP ERROR: {e.code}"
                   )
 
-                  candidates = page.locator(
-                      "button, a"
+                  print(body[:2000])
+
+                  return (
+                      e.code,
+                      None
                   )
 
-                  c = await candidates.count()
+              except Exception as e:
 
-                  for i in range(c):
+                  print(
+                      f"❌ Error Telegram: {e}"
+                  )
+
+                  return (
+                      0,
+                      None
+                  )
+
+
+          # ==============================================================
+          # DESCARGA
+          # ==============================================================
+
+          def download_media(url, media_type, output):
+
+              print(
+                  f"Descargando {media_type}:"
+              )
+
+              print(
+                  f"  Host: "
+                  f"{urllib.parse.urlparse(url).netloc}"
+              )
+
+              request = urllib.request.Request(
+                  url,
+                  headers={
+                      "User-Agent": USER_AGENT,
+                      "Accept": "*/*",
+                      "Referer": (
+                          "https://www.instagram.com/"
+                      )
+                  }
+              )
+
+              try:
+
+                  with urllib.request.urlopen(
+                      request,
+                      timeout=120
+                  ) as response:
+
+                      status = response.status
+
+                      content_type = (
+                          response.headers.get(
+                              "Content-Type",
+                              ""
+                          ).lower()
+                      )
+
+                      print(
+                          f"  HTTP: {status}"
+                      )
+
+                      print(
+                          f"  Content-Type: "
+                          f"{content_type}"
+                      )
+
+                      with open(
+                          output,
+                          "wb"
+                      ) as f:
+
+                          while True:
+
+                              chunk = response.read(
+                                  1024 * 1024
+                              )
+
+                              if not chunk:
+                                  break
+
+                              f.write(chunk)
+
+                  size = os.path.getsize(
+                      output
+                  )
+
+                  print(
+                      f"  Tamaño: "
+                      f"{size / 1024 / 1024:.2f} MB"
+                  )
+
+                  if media_type == "video":
+
+                      if not content_type.startswith(
+                          "video/"
+                      ):
+                          print(
+                              "⚠️ Content-Type no es video/*"
+                          )
+
+                  elif media_type == "photo":
+
+                      if not content_type.startswith(
+                          "image/"
+                      ):
+                          print(
+                              "⚠️ Content-Type no es image/*"
+                          )
+
+                  if not validate_file(
+                      output,
+                      media_type
+                  ):
+
+                      print(
+                          "❌ VALIDACIÓN FALLIDA."
+                      )
+
+                      return False
+
+                  print(
+                      "✅ Archivo multimedia válido."
+                  )
+
+                  return True
+
+              except Exception as e:
+
+                  print(
+                      f"❌ Error descargando: {e}"
+                  )
+
+                  return False
+
+
+          # ==============================================================
+          # PROCESAMIENTO DE UNA CUENTA
+          # ==============================================================
+
+          async def process_account(
+              page,
+              username,
+              state
+          ):
+
+              print()
+              print("=" * 75)
+              print(f"CUENTA: @{username}")
+              print("=" * 75)
+
+              account_state = state.setdefault(
+                  username,
+                  {
+                      "initialized": False,
+                      "hashes": []
+                  }
+              )
+
+              known_hashes = set(
+                  account_state.get(
+                      "hashes",
+                      []
+                  )
+              )
+
+              print(
+                  f"Hashes conocidos: "
+                  f"{len(known_hashes)}"
+              )
+
+              print(
+                  f"Inicializada: "
+                  f"{account_state.get('initialized', False)}"
+              )
+
+              api_body = None
+              api_status = None
+
+              async def response_handler(response):
+
+                  nonlocal api_body
+                  nonlocal api_status
+
+                  if (
+                      "api.sssgram.com/st-tik/ins/dl"
+                      not in response.url
+                  ):
+                      return
+
+                  print()
+                  print(
+                      ">>> API DE SNAPGRAM DETECTADA <<<"
+                  )
+
+                  api_status = response.status
+
+                  print(
+                      f"HTTP: {api_status}"
+                  )
+
+                  try:
+
+                      api_body = await response.text()
+
+                      print(
+                          "Respuesta API recibida."
+                      )
+
+                  except Exception as e:
+
+                      print(
+                          f"❌ Error leyendo API: {e}"
+                      )
+
+              page.on(
+                  "response",
+                  response_handler
+              )
+
+              try:
+
+                  await page.goto(
+                      SNAPGRAM_URL,
+                      wait_until="domcontentloaded",
+                      timeout=60000
+                  )
+
+                  await page.wait_for_timeout(
+                      3000
+                  )
+
+                  story_url = (
+                      f"https://www.instagram.com/"
+                      f"stories/{username}/"
+                  )
+
+                  print(
+                      f"URL Stories: {story_url}"
+                  )
+
+                  inputs = page.locator(
+                      "input"
+                  )
+
+                  input_count = await inputs.count()
+
+                  target = None
+
+                  for i in range(input_count):
 
                       try:
 
-                          el = candidates.nth(i)
+                          inp = inputs.nth(i)
 
-                          if not await el.is_visible():
+                          if not await inp.is_visible():
                               continue
 
-                          text = (
-                              await el.inner_text()
-                          ).strip().lower()
+                          placeholder = (
+                              await inp.get_attribute(
+                                  "placeholder"
+                              )
+                          )
 
-                          if text == "download":
+                          aria = (
+                              await inp.get_attribute(
+                                  "aria-label"
+                              )
+                          )
 
-                              button_found = el
+                          if (
+                              placeholder
+                              and
+                              "paste" in placeholder.lower()
+                          ):
+
+                              target = inp
+                              break
+
+                          if (
+                              aria
+                              and
+                              "paste" in aria.lower()
+                          ):
+
+                              target = inp
                               break
 
                       except Exception:
                           pass
 
+                  if target is None:
 
-              if button_found is None:
+                      print(
+                          "❌ No se encontró el campo."
+                      )
 
-                  print("❌ No se encontró botón Download.")
+                      return
 
-                  await page.screenshot(
-                      path=f"diagnostico_{username}_sin_boton.png",
-                      full_page=True
+                  await target.fill(
+                      story_url
                   )
-
-                  await page.close()
-                  return
-
-
-              print()
-              print(">>> HACIENDO CLICK EN DOWNLOAD <<<")
-              print()
-
-              await button_found.click()
-
-              # Esperamos suficiente para capturar llamadas API.
-              for i in range(30):
-
-                  await page.wait_for_timeout(1000)
 
                   print(
-                      f"Esperando red... "
-                      f"{i + 1}/30"
+                      "Campo completado."
                   )
 
-
-              print()
-              print("=" * 90)
-              print("RESUMEN")
-              print("=" * 90)
-
-              print(
-                  "Requests interesantes:",
-                  len(interesting_requests)
-              )
-
-              print(
-                  "Responses interesantes:",
-                  len(interesting_responses)
-              )
-
-
-              print()
-              print("URL FINAL DE LA PÁGINA:")
-              print(page.url)
-
-
-              print()
-              print("TÍTULO:")
-              print(await page.title())
-
-
-              print()
-              print("=" * 90)
-              print("TODAS LAS PETICIONES INTERESANTES CAPTURADAS")
-              print("=" * 90)
-
-              seen = set()
-
-              for request in interesting_requests:
-
-                  key = (
-                      request.method,
-                      request.url
+                  buttons = page.get_by_role(
+                      "button",
+                      name=re.compile(
+                          r"download",
+                          re.IGNORECASE
+                      )
                   )
 
-                  if key in seen:
-                      continue
-
-                  seen.add(key)
+                  button_count = await buttons.count()
 
                   print(
-                      request.method,
-                      request.url
+                      f"Botones Download: "
+                      f"{button_count}"
                   )
 
+                  if button_count == 0:
 
-              print()
-              print("=" * 90)
-              print("FIN CUENTA")
-              print("=" * 90)
+                      print(
+                          "❌ No se encontró "
+                          "Download."
+                      )
 
-              await page.screenshot(
-                  path=f"diagnostico_{username}_final.png",
-                  full_page=True
-              )
+                      return
 
-              await page.close()
+                  await buttons.first.click()
 
+                  print(
+                      "Download pulsado."
+                  )
+
+                  print(
+                      "Esperando respuesta de API..."
+                  )
+
+                  for second in range(40):
+
+                      await page.wait_for_timeout(
+                          1000
+                      )
+
+                      if api_body is not None:
+                          print(
+                              f"API detectada después de "
+                              f"{second + 1} segundos."
+                          )
+                          break
+
+                      if second % 5 == 4:
+
+                          print(
+                              f"Esperando... "
+                              f"{second + 1}/40"
+                          )
+
+                  if api_body is None:
+
+                      print(
+                          "❌ No se recibió la API."
+                      )
+
+                      return
+
+                  if api_status != 200:
+
+                      print(
+                          f"❌ API HTTP {api_status}"
+                      )
+
+                      return
+
+                  try:
+
+                      data = json.loads(
+                          api_body
+                      )
+
+                  except Exception as e:
+
+                      print(
+                          f"❌ JSON inválido: {e}"
+                      )
+
+                      return
+
+                  if data.get("code") != 200:
+
+                      print(
+                          f"❌ API code: "
+                          f"{data.get('code')}"
+                      )
+
+                      print(
+                          f"msg: "
+                          f"{data.get('msg')}"
+                      )
+
+                      return
+
+                  result = data.get(
+                      "result"
+                  )
+
+                  if not isinstance(
+                      result,
+                      dict
+                  ):
+
+                      print(
+                          "❌ result inválido."
+                      )
+
+                      return
+
+                  stories = result.get(
+                      "insBos",
+                      []
+                  )
+
+                  if not isinstance(
+                      stories,
+                      list
+                  ):
+
+                      print(
+                          "❌ insBos inválido."
+                      )
+
+                      return
+
+                  print()
+                  print(
+                      f"Stories encontrados: "
+                      f"{len(stories)}"
+                  )
+
+                  # ------------------------------------------------------
+                  # SI ES LA PRIMERA VEZ QUE SE CONOCE LA CUENTA:
+                  # baseline sin enviar.
+                  # ------------------------------------------------------
+
+                  if not account_state.get(
+                      "initialized",
+                      False
+                  ):
+
+                      print(
+                          "🆕 Cuenta sin inicializar."
+                      )
+
+                      print(
+                          "Se establecerá baseline."
+                      )
+
+                      baseline = []
+
+                      for story in stories:
+
+                          if not isinstance(
+                              story,
+                              dict
+                          ):
+                              continue
+
+                          story_id = story.get(
+                              "id"
+                          )
+
+                          media_url = (
+                              story.get(
+                                  "originalUrl"
+                              )
+                              or
+                              story.get(
+                                  "url"
+                              )
+                          )
+
+                          media_type = (
+                              media_type_from_url(
+                                  media_url
+                              )
+                          )
+
+                          print(
+                              f"  Baseline "
+                              f"{story_id} "
+                              f"tipo={media_type}"
+                          )
+
+                          # En el baseline usamos el ID del Story
+                          # como referencia temporal. El hash real
+                          # se incorporará cuando descarguemos en
+                          # ejecuciones posteriores.
+                          #
+                          # No enviamos nada.
+                          if story_id:
+                              baseline.append(
+                                  f"story:{story_id}"
+                              )
+
+                      account_state[
+                          "initialized"
+                      ] = True
+
+                      account_state[
+                          "baseline_story_ids"
+                      ] = baseline
+
+                      print(
+                          "✅ Baseline establecido."
+                      )
+
+                      return
+
+                  baseline_ids = set(
+                      account_state.get(
+                          "baseline_story_ids",
+                          []
+                      )
+                  )
+
+                  # ------------------------------------------------------
+                  # PROCESAR STORIES
+                  # ------------------------------------------------------
+
+                  sent_count = 0
+                  skipped_count = 0
+
+                  with tempfile.TemporaryDirectory(
+                      prefix="instagram-monitor-"
+                  ) as temp_dir:
+
+                      for index, story in enumerate(
+                          stories,
+                          1
+                      ):
+
+                          if not isinstance(
+                              story,
+                              dict
+                          ):
+                              continue
+
+                          story_id = story.get(
+                              "id"
+                          )
+
+                          media_url = (
+                              story.get(
+                                  "originalUrl"
+                              )
+                              or
+                              story.get(
+                                  "url"
+                              )
+                          )
+
+                          media_type = (
+                              media_type_from_url(
+                                  media_url
+                              )
+                          )
+
+                          print()
+                          print(
+                              "-" * 65
+                          )
+
+                          print(
+                              f"STORY #{index}"
+                          )
+
+                          print(
+                              f"ID: {story_id}"
+                          )
+
+                          print(
+                              f"Tipo: {media_type}"
+                          )
+
+                          if not media_url:
+
+                              print(
+                                  "❌ Sin URL."
+                              )
+
+                              continue
+
+                          if media_type is None:
+
+                              print(
+                                  "❌ Tipo de archivo "
+                                  "no reconocido."
+                              )
+
+                              continue
+
+                          # ------------------------------------------------
+                          # FORCE_RESEND
+                          # ------------------------------------------------
+
+                          temp_name = (
+                              f"{username}-"
+                              f"{index}"
+                          )
+
+                          if media_type == "video":
+                              temp_name += ".mp4"
+                          else:
+                              temp_name += ".jpg"
+
+                          output = os.path.join(
+                              temp_dir,
+                              temp_name
+                          )
+
+                          # ------------------------------------------------
+                          # Descargar
+                          # ------------------------------------------------
+
+                          if not download_media(
+                              media_url,
+                              media_type,
+                              output
+                          ):
+
+                              print(
+                                  "❌ Story descartado."
+                              )
+
+                              continue
+
+                          file_hash = sha256_file(
+                              output
+                          )
+
+                          print(
+                              f"SHA-256: {file_hash}"
+                          )
+
+                          # ------------------------------------------------
+                          # Dedupe
+                          # ------------------------------------------------
+
+                          if (
+                              not FORCE_RESEND
+                              and
+                              file_hash in known_hashes
+                          ):
+
+                              print(
+                                  "⏭️ Ya conocido "
+                                  "(hash)."
+                              )
+
+                              skipped_count += 1
+
+                              continue
+
+                          # ------------------------------------------------
+                          # Baseline antiguo
+                          # ------------------------------------------------
+
+                          story_key = (
+                              f"story:{story_id}"
+                              if story_id
+                              else None
+                          )
+
+                          if (
+                              story_key
+                              and
+                              story_key in baseline_ids
+                              and
+                              not FORCE_RESEND
+                          ):
+
+                              print(
+                                  "⏭️ Story perteneciente "
+                                  "al baseline."
+                              )
+
+                              skipped_count += 1
+
+                              # Incorporarlo como hash conocido
+                              # para futuras ejecuciones.
+                              known_hashes.add(
+                                  file_hash
+                              )
+
+                              continue
+
+                          # ------------------------------------------------
+                          # Telegram
+                          # ------------------------------------------------
+
+                          caption = (
+                              f"📸 Instagram\n"
+                              f"@{username}"
+                          )
+
+                          print(
+                              "📤 Enviando a Telegram..."
+                          )
+
+                          http_status, telegram_data = (
+                              telegram_request(
+                                  "POST",
+                                  output,
+                                  media_type,
+                                  caption
+                              )
+                          )
+
+                          if (
+                              http_status == 200
+                              and
+                              isinstance(
+                                  telegram_data,
+                                  dict
+                              )
+                              and
+                              telegram_data.get(
+                                  "ok"
+                              ) is True
+                          ):
+
+                              print(
+                                  "✅ Telegram confirmó "
+                                  "el envío."
+                              )
+
+                              known_hashes.add(
+                                  file_hash
+                              )
+
+                              sent_count += 1
+
+                          else:
+
+                              print(
+                                  "❌ Telegram NO confirmó "
+                                  "el envío."
+                              )
+
+                              print(
+                                  "⚠️ El hash NO se guarda."
+                              )
+
+                  # ------------------------------------------------------
+                  # Guardar hashes
+                  # ------------------------------------------------------
+
+                  account_state[
+                      "hashes"
+                  ] = list(
+                      known_hashes
+                  )[-MAX_HASHES_PER_ACCOUNT:]
+
+                  # Limpiar baseline IDs antiguos.
+                  account_state[
+                      "baseline_story_ids"
+                  ] = list(
+                      baseline_ids
+                  )[-100:]
+
+                  print()
+                  print(
+                      f"Enviados: {sent_count}"
+                  )
+
+                  print(
+                      f"Omitidos: {skipped_count}"
+                  )
+
+              finally:
+
+                  try:
+                      page.remove_listener(
+                          "response",
+                          response_handler
+                      )
+                  except Exception:
+                      pass
+
+
+          # ==============================================================
+          # MAIN
+          # ==============================================================
 
           async def main():
+
+              print()
+              print("=" * 75)
+              print("INSTAGRAM STORIES MONITOR")
+              print("DESCARGADOR: SNAPGRAM + API")
+              print("MODO: STORIES")
+              print(
+                  f"FORCE_RESEND: {FORCE_RESEND}"
+              )
+              print("=" * 75)
+
+              accounts = load_json(
+                  ACCOUNTS_FILE,
+                  []
+              )
+
+              if not accounts:
+
+                  print(
+                      "❌ No hay cuentas configuradas."
+                  )
+
+                  return
+
+              state = load_json(
+                  STATE_FILE,
+                  {}
+              )
+
+              if not isinstance(
+                  state,
+                  dict
+              ):
+
+                  state = {}
+
+              print()
+              print(
+                  f"Cuentas configuradas: "
+                  f"{len(accounts)}"
+              )
 
               async with async_playwright() as p:
 
@@ -434,38 +1204,73 @@ jobs:
                       headless=True,
                       args=[
                           "--no-sandbox",
-                          "--disable-dev-shm-usage",
+                          "--disable-dev-shm-usage"
                       ]
                   )
 
-                  for username in ACCOUNTS:
+                  context = await browser.new_context(
+                      user_agent=USER_AGENT,
+                      viewport={
+                          "width": 1365,
+                          "height": 900
+                      }
+                  )
+
+                  page = await context.new_page()
+
+                  for username in accounts:
 
                       try:
 
-                          await diagnosticar(
-                              browser,
-                              username
+                          await process_account(
+                              page,
+                              username,
+                              state
                           )
 
                       except Exception as e:
 
                           print()
                           print(
-                              f"❌ ERROR EN @{username}: {e}"
+                              f"❌ ERROR en "
+                              f"@{username}: {e}"
                           )
+
+                      # Pequeña pausa entre cuentas.
+                      await page.wait_for_timeout(
+                          2000
+                      )
 
                   await browser.close()
 
+              save_json(
+                  STATE_FILE,
+                  state
+              )
+
+              print()
+              print("=" * 75)
+              print("ESTADO GUARDADO")
+              print("=" * 75)
+
+              print(
+                  f"Archivo: {STATE_FILE}"
+              )
 
           asyncio.run(main())
-
           PY
 
-      - name: Guardar diagnóstico
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: diagnostico-snapgram-api
-          path: |
-            diagnostico_*.png
-          if-no-files-found: ignore
+      - name: Commit del estado
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add data/instagram-state.json
+
+          if git diff --cached --quiet; then
+            echo "No hay cambios de estado para guardar."
+          else
+            git commit -m "Actualizar estado Instagram Stories"
+            git push
+          fi

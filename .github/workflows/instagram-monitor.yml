@@ -58,7 +58,7 @@ jobs:
 
           # SOLO PARA ESTA PRIMERA PRUEBA REAL.
           # Después de comprobar Telegram, cambiar a False.
-          FORCE_RESEND = True
+          FORCE_RESEND = False
 
           MAX_HASHES_PER_ACCOUNT = 100
 

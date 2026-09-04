@@ -1,0 +1,629 @@
+name: Test laderechadiario - detectar fotos y videos
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Instalar Playwright
+        run: |
+          python3 -m pip install playwright
+          python3 -m playwright install --with-deps chromium
+
+      - name: Analizar laderechadiario
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import asyncio
+          import json
+          import re
+          from urllib.parse import urlparse
+          from playwright.async_api import async_playwright
+
+          USERNAME = "laderechadiario"
+
+          SNAPGRAM_URL = (
+              "https://www.snapgram.io/"
+              "instagram-story-downloader/"
+          )
+
+          async def main():
+
+              async with async_playwright() as p:
+
+                  browser = await p.chromium.launch(
+                      headless=True,
+                      args=[
+                          "--no-sandbox",
+                          "--disable-dev-shm-usage"
+                      ]
+                  )
+
+                  context = await browser.new_context(
+                      user_agent=(
+                          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/139.0.0.0 Safari/537.36"
+                      ),
+                      viewport={
+                          "width": 1365,
+                          "height": 900
+                      }
+                  )
+
+                  page = await context.new_page()
+
+                  responses = []
+
+                  async def on_response(response):
+
+                      url = response.url
+                      lower = url.lower()
+
+                      # Solo nos interesan peticiones que puedan
+                      # contener información de Instagram/resultados.
+                      interesting = any(
+                          x in lower
+                          for x in [
+                              "api.",
+                              "/api/",
+                              "graphql",
+                              "instagram",
+                              "story",
+                              "stories",
+                              "media",
+                              "download",
+                              "result",
+                              "json"
+                          ]
+                      )
+
+                      if not interesting:
+                          return
+
+                      # Ignorar recursos estáticos normales.
+                      if any(
+                          x in lower
+                          for x in [
+                              ".js",
+                              ".css",
+                              ".svg",
+                              ".png",
+                              ".woff",
+                              ".woff2",
+                              ".ico"
+                          ]
+                      ):
+                          return
+
+                      try:
+                          status = response.status
+
+                          content_type = (
+                              response.headers.get(
+                                  "content-type",
+                                  ""
+                              ).lower()
+                          )
+
+                          body = ""
+
+                          if (
+                              "json" in content_type
+                              or "text" in content_type
+                          ):
+                              try:
+                                  body = await response.text()
+                              except Exception:
+                                  body = ""
+
+                          responses.append({
+                              "url": url,
+                              "status": status,
+                              "content_type": content_type,
+                              "body": body
+                          })
+
+                      except Exception:
+                          pass
+
+                  page.on("response", on_response)
+
+                  try:
+
+                      print()
+                      print("=" * 75)
+                      print("PRUEBA ESPECÍFICA")
+                      print("@laderechadiario")
+                      print("=" * 75)
+                      print()
+
+                      print("Abriendo Snapgram...")
+
+                      await page.goto(
+                          SNAPGRAM_URL,
+                          wait_until="domcontentloaded",
+                          timeout=60000
+                      )
+
+                      await page.wait_for_timeout(3000)
+
+                      print("Snapgram cargado.")
+
+                      story_url = (
+                          f"https://www.instagram.com/"
+                          f"stories/{USERNAME}/"
+                      )
+
+                      print()
+                      print(f"URL utilizada:")
+                      print(story_url)
+
+                      # --------------------------------------------------
+                      # Buscar input
+                      # --------------------------------------------------
+
+                      inputs = page.locator("input")
+
+                      input_count = await inputs.count()
+
+                      print(
+                          f"Inputs encontrados: {input_count}"
+                      )
+
+                      target = None
+
+                      for i in range(input_count):
+
+                          try:
+
+                              inp = inputs.nth(i)
+
+                              if not await inp.is_visible():
+                                  continue
+
+                              placeholder = (
+                                  await inp.get_attribute(
+                                      "placeholder"
+                                  )
+                              )
+
+                              aria = (
+                                  await inp.get_attribute(
+                                      "aria-label"
+                                  )
+                              )
+
+                              print(
+                                  f"Input #{i}: "
+                                  f"placeholder={placeholder!r} "
+                                  f"aria={aria!r}"
+                              )
+
+                              if (
+                                  placeholder
+                                  and
+                                  "paste" in placeholder.lower()
+                              ):
+                                  target = inp
+                                  break
+
+                              if (
+                                  aria
+                                  and
+                                  "paste" in aria.lower()
+                              ):
+                                  target = inp
+                                  break
+
+                              if target is None:
+                                  target = inp
+
+                          except Exception:
+                              pass
+
+                      if target is None:
+
+                          print()
+                          print(
+                              "❌ No se encontró el campo."
+                          )
+
+                          return
+
+                      await target.fill(story_url)
+
+                      print()
+                      print("Campo completado.")
+
+                      # --------------------------------------------------
+                      # Buscar botón Download
+                      # --------------------------------------------------
+
+                      buttons = page.get_by_role(
+                          "button",
+                          name=re.compile(
+                              r"download",
+                              re.IGNORECASE
+                          )
+                      )
+
+                      count = await buttons.count()
+
+                      print(
+                          f"Botones Download: {count}"
+                      )
+
+                      if count == 0:
+
+                          print(
+                              "❌ No se encontró Download."
+                          )
+
+                          return
+
+                      await buttons.first.click()
+
+                      print()
+                      print("Download pulsado.")
+                      print(
+                          "Esperando todas las respuestas..."
+                      )
+
+                      # Esperamos 40 segundos.
+                      for second in range(40):
+
+                          await page.wait_for_timeout(1000)
+
+                          if second % 5 == 4:
+
+                              print(
+                                  f"Esperando... "
+                                  f"{second + 1}/40"
+                              )
+
+                      # --------------------------------------------------
+                      # Analizar respuestas
+                      # --------------------------------------------------
+
+                      print()
+                      print("=" * 75)
+                      print("RESPUESTAS DE RED")
+                      print("=" * 75)
+
+                      print(
+                          f"Total respuestas interesantes: "
+                          f"{len(responses)}"
+                      )
+
+                      api_found = False
+
+                      for n, item in enumerate(
+                          responses,
+                          1
+                      ):
+
+                          url = item["url"]
+                          status = item["status"]
+                          content_type = item["content_type"]
+                          body = item["body"]
+
+                          if (
+                              "api.sssgram.com" in url
+                              or
+                              "st-tik/ins/dl" in url
+                          ):
+
+                              api_found = True
+
+                              print()
+                              print(
+                                  ">>> API SSSGRAM <<<"
+                              )
+
+                              print(
+                                  f"HTTP: {status}"
+                              )
+
+                              print(
+                                  f"Content-Type: "
+                                  f"{content_type}"
+                              )
+
+                              print(
+                                  "URL: "
+                                  "api.sssgram.com/st-tik/ins/dl"
+                              )
+
+                              if body:
+
+                                  print()
+                                  print(
+                                      "Analizando JSON..."
+                                  )
+
+                                  try:
+
+                                      data = json.loads(
+                                          body
+                                      )
+
+                                      print(
+                                          f"code: "
+                                          f"{data.get('code')}"
+                                      )
+
+                                      print(
+                                          f"msg: "
+                                          f"{data.get('msg')}"
+                                      )
+
+                                      result = (
+                                          data.get("result")
+                                      )
+
+                                      if not isinstance(
+                                          result,
+                                          dict
+                                      ):
+
+                                          print(
+                                              "❌ result inválido."
+                                          )
+
+                                          continue
+
+                                      stories = (
+                                          result.get(
+                                              "insBos",
+                                              []
+                                          )
+                                      )
+
+                                      print(
+                                          f"count: "
+                                          f"{result.get('count')}"
+                                      )
+
+                                      print(
+                                          f"Stories: "
+                                          f"{len(stories)}"
+                                      )
+
+                                      # ----------------------------------
+                                      # Stories
+                                      # ----------------------------------
+
+                                      if not stories:
+
+                                          print(
+                                              "⚠️ No hay "
+                                              "insBos."
+                                          )
+
+                                      for i, story in enumerate(
+                                          stories,
+                                          1
+                                      ):
+
+                                          if not isinstance(
+                                              story,
+                                              dict
+                                          ):
+                                              continue
+
+                                          story_id = (
+                                              story.get("id")
+                                          )
+
+                                          media_url = (
+                                              story.get(
+                                                  "originalUrl"
+                                              )
+                                              or
+                                              story.get(
+                                                  "url"
+                                              )
+                                          )
+
+                                          duration = (
+                                              story.get(
+                                                  "duration"
+                                              )
+                                          )
+
+                                          media_type = (
+                                              story.get(
+                                                  "type"
+                                              )
+                                          )
+
+                                          print()
+                                          print(
+                                              f"STORY #{i}"
+                                          )
+                                          print(
+                                              "-" * 50
+                                          )
+
+                                          print(
+                                              f"ID: {story_id}"
+                                          )
+
+                                          print(
+                                              f"type API: "
+                                              f"{media_type}"
+                                          )
+
+                                          print(
+                                              f"duration: "
+                                              f"{duration}"
+                                          )
+
+                                          if media_url:
+
+                                              parsed = (
+                                                  urlparse(
+                                                      media_url
+                                                  )
+                                              )
+
+                                              path = (
+                                                  parsed.path
+                                                  .lower()
+                                              )
+
+                                              safe_url = (
+                                                  f"{parsed.scheme}://"
+                                                  f"{parsed.netloc}"
+                                                  f"{parsed.path}"
+                                              )
+
+                                              print(
+                                                  f"URL: "
+                                                  f"{safe_url}"
+                                              )
+
+                                              if ".mp4" in path:
+
+                                                  print(
+                                                      "🎥 VIDEO"
+                                                  )
+
+                                              elif any(
+                                                  x in path
+                                                  for x in [
+                                                      ".jpg",
+                                                      ".jpeg",
+                                                      ".png",
+                                                      ".webp"
+                                                  ]
+                                              ):
+
+                                                  print(
+                                                      "🖼️ IMAGEN"
+                                                  )
+
+                                              else:
+
+                                                  print(
+                                                      "❓ TIPO "
+                                                      "DESCONOCIDO"
+                                                  )
+
+                                          # Buscar marcador
+                                          # INSTAGRAM.STORY
+                                          story_text = (
+                                              json.dumps(
+                                                  story,
+                                                  ensure_ascii=False
+                                              )
+                                          )
+
+                                          if (
+                                              "INSTAGRAM.STORY"
+                                              in story_text
+                                          ):
+
+                                              print(
+                                                  "✅ Marcador "
+                                                  "INSTAGRAM.STORY"
+                                              )
+
+                                  except Exception as e:
+
+                                      print(
+                                          f"❌ Error JSON: {e}"
+                                      )
+
+                              else:
+
+                                  print(
+                                      "⚠️ Respuesta sin body."
+                                  )
+
+                      # --------------------------------------------------
+                      # Resumen
+                      # --------------------------------------------------
+
+                      print()
+                      print("=" * 75)
+                      print("RESUMEN")
+                      print("=" * 75)
+
+                      if api_found:
+
+                          print(
+                              "✅ Snapgram realizó la "
+                              "petición a su API."
+                          )
+
+                      else:
+
+                          print(
+                              "❌ No apareció "
+                              "api.sssgram.com."
+                          )
+
+                      # Buscar otras APIs relevantes.
+                      print()
+                      print(
+                          "OTRAS RESPUESTAS POTENCIALMENTE "
+                          "RELEVANTES:"
+                      )
+
+                      found_other = False
+
+                      for item in responses:
+
+                          url = item["url"]
+
+                          if (
+                              "api.sssgram.com"
+                              not in url
+                              and
+                              any(
+                                  x in url.lower()
+                                  for x in [
+                                      "api",
+                                      "graphql",
+                                      "instagram",
+                                      "story",
+                                      "stories"
+                                  ]
+                              )
+                          ):
+
+                              found_other = True
+
+                              parsed = urlparse(url)
+
+                              safe_url = (
+                                  f"{parsed.scheme}://"
+                                  f"{parsed.netloc}"
+                                  f"{parsed.path}"
+                              )
+
+                              print(
+                                  f"HTTP {item['status']} "
+                                  f"{safe_url}"
+                              )
+
+                      if not found_other:
+
+                          print(
+                              "Ninguna."
+                          )
+
+                  finally:
+
+                      await browser.close()
+
+          asyncio.run(main())
+          PY
